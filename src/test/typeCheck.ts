@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { logger } from '../utils/logger.js';
 import type { TestResult } from './repairLoop.js';
 
-export function runTypeCheck(filePath: string, code: string): TestResult {
+export function runTypeCheck(filePath: string, code: string, generatedDir?: string): TestResult {
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     compilerOptions: {
@@ -41,9 +41,9 @@ export function runTypeCheck(filePath: string, code: string): TestResult {
   const sourceFile = project.createSourceFile(filePath + '.tmp.tsx', code, { overwrite: true });
   
   // Recursively add generated files to ensure models are found
-  const generatedDir = resolve(process.cwd(), 'src/generated');
-  if (existsSync(generatedDir)) {
-      addFilesRecursively(project, generatedDir);
+  const targetGeneratedDir = generatedDir ? resolve(generatedDir) : resolve(process.cwd(), 'src/generated');
+  if (existsSync(targetGeneratedDir)) {
+      addFilesRecursively(project, targetGeneratedDir);
   }
 
   const diagnostics = project.getPreEmitDiagnostics();

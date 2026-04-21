@@ -19,7 +19,7 @@
 ## 📦 Installation
 
 ```bash
-npm install -g @binder/core
+npm install -g @bindercli/core
 ```
 
 ## 🛠️ Usage
@@ -67,7 +67,7 @@ Binder acts as the **"Safe Hands"** of your development cycle, handling the comp
 
 ## 📦 How it works in your Repo
 
-1. **Install**: `npm install -g @binder/core`
+1. **Install**: `npm install -g @bindercli/core`
 2. **Setup**: Run `binder init` to scaffold your configuration.
 3. **Bind**: Run `binder bind src/pages/YourPage.tsx`
 4. **Result**: Binder performs the surgery, compiles the file in a virtual environment, and only overwrites your file once the compiler gives a green light.

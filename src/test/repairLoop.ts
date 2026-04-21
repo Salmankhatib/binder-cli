@@ -28,7 +28,7 @@ export async function testAndRepair(
   }
 
   while (totalRetries < RETRY_LIMIT) {
-    const typeResult = runTypeCheck(filePath, currentCode);
+    const typeResult = runTypeCheck(filePath, currentCode, config.frontend.generatedDir);
     if (typeResult.passed) {
       logger.success("✔ BINDING VERIFIED: 0 Compiler Errors.");
       recordSuccess(filePath, currentCode);
