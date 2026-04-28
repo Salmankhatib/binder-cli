@@ -1,17 +1,14 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { z } from 'zod';
 import { logger } from '../utils/logger.js';
 import type { Config } from './types.js';
 
 const configSchema = z.object({
   backend: z.object({
-    python: z.string().optional(),
+    schemaPath: z.string(),
     url: z.string().url().optional()
-  }).refine(
-    (data) => data.python || data.url,
-    { message: 'Either backend.python or backend.url must be specified' }
-  ),
+  }),
   frontend: z.object({
     generatedDir: z.string().default('./src/generated')
   }),
@@ -33,18 +30,40 @@ const configSchema = z.object({
   })).optional()
 });
 
+function findUp(filename: string, startDir: string): string | null {
+  let currentDir = resolve(startDir);
+  while (true) {
+    const fullPath = join(currentDir, filename);
+    if (existsSync(fullPath)) return fullPath;
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+  return null;
+}
+
 export async function loadConfig(
   configPath: string,
   cliOverrides?: Partial<Config>
 ): Promise<Config> {
-  logger.step('🔍', `Loading config from ${configPath}`);
+  let resolvedPath: string | null = null;
 
-  const resolvedPath = resolve(configPath);
-
-  if (!existsSync(resolvedPath)) {
-    logger.error(`Config file not found: ${resolvedPath}`);
-    throw new Error(`Config file not found: ${resolvedPath}`);
+  if (configPath === './binder.config.json') {
+    resolvedPath = findUp('binder.config.json', process.cwd());
+  } else {
+    resolvedPath = resolve(configPath);
+    if (!existsSync(resolvedPath)) {
+        resolvedPath = null;
+    }
   }
+
+  if (!resolvedPath) {
+    const msg = `Config file not found. Run "binder init" or provide --config path.`;
+    logger.error(msg);
+    throw new Error(msg);
+  }
+
+  logger.step('🔍', `Loading config from ${resolvedPath}`);
 
   let rawConfig: unknown;
   try {
@@ -72,8 +91,19 @@ const merged = {
     throw new Error('Invalid configuration');
   }
 
+  const finalConfig = result.data;
+  const configDir = dirname(resolvedPath);
+
+  // Resolve relative paths in config relative to the config file
+  if (finalConfig.backend.schemaPath && !finalConfig.backend.schemaPath.startsWith('http')) {
+    finalConfig.backend.schemaPath = resolve(configDir, finalConfig.backend.schemaPath);
+  }
+  if (finalConfig.frontend.generatedDir) {
+    finalConfig.frontend.generatedDir = resolve(configDir, finalConfig.frontend.generatedDir);
+  }
+
   logger.success('Config loaded successfully');
-  return result.data;
+  return finalConfig;
 }
 
 export function validateConfig(config: unknown): asserts config is Config {

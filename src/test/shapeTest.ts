@@ -1,5 +1,5 @@
 import { Project, SyntaxKind, Node } from 'ts-morph';
-import type { TestResult } from './repairLoop.js';
+import type { TestResult } from '../common/types.js';
 
 export function runShapeTest(filePath: string, code: string): TestResult {
   const project = new Project({ compilerOptions: { jsx: 1 } });

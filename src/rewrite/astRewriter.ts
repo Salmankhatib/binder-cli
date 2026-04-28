@@ -1,7 +1,7 @@
 ﻿import { Project, SyntaxKind, Node, SourceFile, ImportDeclaration, VariableDeclaration, FunctionDeclaration } from "ts-morph";
 import { relative, dirname, resolve } from "path";
 import { logger } from "../utils/logger.js";
-import type { BindingPlan } from "../ai/responseParser.js";
+import type { BindingPlan } from "../common/types.js";
 
 export function rewriteFile(
   filePath: string,
@@ -100,13 +100,30 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
                          binding.hookName.toLowerCase().includes('patch') || 
                          binding.hookName.toLowerCase().includes('put');
 
+      // --- NEW: Professional Name Cleanup ---
+      // If variable is MOCK_AGENTS, we rename it to 'agents' globally in the file
+      let targetName = binding.mockName;
+      if (binding.mockName.toUpperCase().startsWith('MOCK_') || binding.mockName.toUpperCase().startsWith('FAKE_')) {
+          const cleanName = binding.mockName.replace(/^(MOCK_|FAKE_|STUB_|DUMMY_|SAMPLE_|TEST_)/i, '').toLowerCase();
+          
+          // Use AST to rename all occurrences safely
+          const identifier = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
+            .find(id => id.getText() === binding.mockName);
+          
+          if (identifier) {
+            logger.system(`  [Surgery] Cleaning name: ${binding.mockName} -> ${cleanName}`);
+            sourceFile.renameIdentifier(binding.mockName, cleanName);
+            targetName = cleanName;
+          }
+      }
+
       // Check if the mock is an existing function we should replace
-      const existingFunc = body.getVariableDeclaration(binding.mockName) || 
-                           sourceFile.getFunction(binding.mockName) ||
-                           body.getDescendantsOfKind(SyntaxKind.FunctionDeclaration).find(f => f.getName() === binding.mockName);
+      const existingFunc = body.getVariableDeclaration(targetName) || 
+                           sourceFile.getFunction(targetName) ||
+                           body.getDescendantsOfKind(SyntaxKind.FunctionDeclaration).find(f => f.getName() === targetName);
 
       if (existingFunc && isMutation) {
-          logger.system(`  [Surgery] Replacing mock function "${binding.mockName}" with mutation hook`);
+          logger.system(`  [Surgery] Replacing mock function "${targetName}" with mutation hook`);
           if (Node.isVariableDeclaration(existingFunc)) {
               const statement = existingFunc.getFirstAncestorByKind(SyntaxKind.VariableStatement);
               statement?.remove();
@@ -116,16 +133,34 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
       }
 
       if (isMutation) {
-        // useMutation hook (React Query v5 style: isPending instead of isLoading)
-        const hookCallLine = `const ${binding.mockName} = ${binding.hookName}();`;
+        // useMutation hook
+        const hookCallLine = `const ${targetName} = ${binding.hookName}();`;
         if (!body.getText().includes(`${binding.hookName}(`)) {
           body.insertStatements(0, hookCallLine);
         }
       } else {
-        // useQuery hook
-        const hookCallLine = `const { data: ${binding.mockName}, isLoading: ${binding.mockName}Loading } = ${binding.hookName}();`;
+        // useQuery hook with Strategy support
+        const hookVar = targetName;
+        const hookCall = `${binding.hookName}()`;
+        
+        // Destructure based on strategy
+        let hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${hookCall};`;
+        
         if (!body.getText().includes(`${binding.hookName}(`)) {
           body.insertStatements(0, hookCallLine);
+          
+          // Apply Loading Strategy
+          if (binding.loadingStrategy === 'early-return-skeleton') {
+              body.insertStatements(1, `if (${hookVar}Loading) return <div>Loading ${hookVar}...</div>;`);
+          } else if (binding.loadingStrategy === 'suspense') {
+              logger.warning(`  [Strategy] Suspense requested for ${hookVar}. Ensure parent component has <Suspense>.`);
+          }
+
+          // Apply Error Strategy
+          if (binding.errorStrategy === 'early-return-error') {
+              body.insertStatements(binding.loadingStrategy === 'early-return-skeleton' ? 2 : 1, 
+                `if (${hookVar}Error) return <div>Error loading ${hookVar}</div>;`);
+          }
         }
       }
     }

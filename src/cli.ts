@@ -9,12 +9,11 @@ import { writeFileSync, mkdirSync, readFileSync, existsSync, readdirSync, statSy
 import { loadConfig } from "./config/loader.js";
 import { logger } from "./utils/logger.js";
 import { logo, divider } from "./utils/ascii.js";
-import { extractOpenApiFromPython } from "./discover/extractSchema.js";
 import { runOrval } from "./generate/orvalRunner.js";
 import { scanMocks } from "./scan/mockScanner.js";
 import { rewriteFile } from "./rewrite/astRewriter.js";
-import { testAndRepair } from "./test/repairLoop.js";
 import { validateCommand } from "./validate/validateCommand.js";
+import { discoveryPhase } from "./discover/scout.js";
 import type { Config } from "./config/types.js";
 
 const program = new Command();
@@ -91,7 +90,7 @@ program
         
         const configPath = resolve(process.cwd(), "binder.config.json");
         const defaultConfig = {
-            backend: { python: "./main.py", url: "http://localhost:8000" },
+            backend: { schemaPath: "./openapi.json", url: "http://localhost:8000" },
             frontend: { generatedDir: "./src/generated" },
             llm: { 
                 provider: provider === 'manual' ? "openai" : provider, 
@@ -121,7 +120,7 @@ program
   .action(async () => {
     await revealLogo();
     logger.box("BINDER WORKFLOW GUIDE", [
-      "1. CONFIG: Point to your backend entry file.",
+      "1. CONFIG: Point to your openapi.json file (local or URL).",
       "2. BIND:   Run 'binder bind <file>' to swap mocks.",
       "3. TEST:   Use '--with-integration' for E2E checks.",
       "4. AUTH:   Add 'custom-instance.ts' for global auth."
@@ -133,23 +132,30 @@ program
   .description("Bind file(s) to API")
   .option("--batch", "Batch mode", false)
   .option("-i, --interactive", "Review and confirm each binding", false)
+  .option("--safe-only", "Only auto-convert safe patterns", true)
   .option("--with-integration", "E2E mode", false)
+  .option("--ignore <variables>", "Comma-separated list of mock variables to ignore")
+  .option("--only <variables>", "Comma-separated list of mock variables to exclusively target")
   .action(async (targetPath, options) => {
     console.log(pc.cyan(logo));
     console.log(pc.gray(divider));
+    
     const startTime = Date.now();
     const config = await loadConfig(program.opts().config);
+    
+    // PHASE 1: THE SCOUT (Discovery)
+    const projectMap = await discoveryPhase(config);
     const absTarget = resolve(targetPath);
     
     logger.startSpinner("Preparing API Infrastructure...");
-    let schemaPath = config.backend.python ? resolve(config.backend.python) : config.backend.url!;
-    if (config.backend.python) {
-        const schema = await extractOpenApiFromPython(config.backend.python);
-        const tmpDir = resolve(process.env.TEMP || "/tmp", "binder");
-        mkdirSync(tmpDir, { recursive: true });
-        schemaPath = resolve(tmpDir, "schema.json");
-        writeFileSync(schemaPath, JSON.stringify(schema, null, 2));
+    const schemaPath = config.backend.schemaPath;
+
+    if (!schemaPath || (!schemaPath.startsWith('http') && !existsSync(schemaPath))) {
+        logger.stopSpinner(false, "Schema file not found.");
+        logger.error(`Ensure your openapi.json exists at: ${schemaPath}`);
+        throw new Error("Missing OpenAPI schema.");
     }
+    
     await runOrval(schemaPath, config.frontend.generatedDir, config.orval);
     logger.stopSpinner(true, "API Infrastructure Ready");
 
@@ -157,47 +163,59 @@ program
       ? readdirSync(absTarget).filter(f => f.endsWith(".tsx")).map(f => join(absTarget, f))
       : [absTarget];
 
+    const { safeBind } = await import("./orchestrator/safeBind.js");
+    const { manualReviewMode } = await import("./cli/reviewMode.js");
+
     for (const file of files) {
       logger.system(`\n>>> Processing: ${file}`);
-      const mocks = scanMocks(file);
+      let mocks = scanMocks(file);
+      
+      if (options.ignore) {
+        const toIgnore = options.ignore.split(',').map((s: string) => s.trim());
+        mocks = mocks.filter(m => !toIgnore.includes(m.name));
+      }
+      if (options.only) {
+        const toOnly = options.only.split(',').map((s: string) => s.trim());
+        mocks = mocks.filter(m => toOnly.includes(m.name));
+      }
+
       if (mocks.length === 0) {
-        logger.warning("No mocks detected. Skipping.");
+        logger.warning("No mocks detected after filtering. Skipping.");
         continue;
       }
       
       const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
       const hookNames = [...apiContent.matchAll(/export (?:function|const) (use\w+)/g)].map(m => m[1]);
-      const { createBindingPlan } = await import("./match/bindingEngine.js");
-      const { auditBindingPlan } = await import("./ai/auditor.js");
       
-      const initialPlan = await createBindingPlan(mocks, hookNames.map(n => ({name: n, method: "GET", path: "/", responseType: "any"})), file, config.llm, apiContent);
-      const bindingPlan = await auditBindingPlan(readFileSync(file, "utf-8"), initialPlan, apiContent, config);
+      // PHASE 2 & 3: HEURISTIC MATCHING & SAFETY CHECK
+      const bindResults = await safeBind(mocks, file, config, hookNames);
 
-      if (options.interactive) {
-          console.log(pc.bold("\n🔍 BINDING REVIEW:"));
-          bindingPlan.bindings.forEach((b: any) => {
-              console.log(`  - ${pc.yellow(b.mockName)} -> ${pc.cyan(b.hookName)} (Confidence: ${(b.confidence * 100).toFixed(0)}%)`);
-              if (b.transformer) console.log(`    ${pc.gray("Transformer:")} ${pc.italic(b.transformer)}`);
-          });
-          
-          const confirm = await new Toggle({
-              message: "Apply these bindings and proceed to surgery?",
-              enabled: "Proceed",
-              disabled: "Abort",
-              initial: true
-          }).run();
-          
-          if (!confirm) {
-              logger.warning(`Binding aborted for ${file}.`);
-              continue;
+      if (bindResults.todos.length > 0) {
+        const manualResults = await manualReviewMode(bindResults.todos);
+        
+        for (const res of manualResults) {
+          if (res.willAutoConvert) {
+            const { rewriteFile } = await import("./rewrite/astRewriter.js");
+            const plan = {
+              bindings: [{
+                mockName: res.mock.name,
+                hookName: res.hook,
+                confidence: 0.5,
+                actionType: 'READ'
+              }]
+            };
+            const rewritten = rewriteFile(file, plan as any, config.frontend.generatedDir);
+            writeFileSync(file, rewritten);
+            logger.success(`✓ Manual Override: ${res.mock.name} → ${res.hook}`);
           }
+        }
       }
+    }
 
-      const rewritten = rewriteFile(file, bindingPlan, config.frontend.generatedDir);
-      const finalCode = await testAndRepair(file, rewritten, mocks, config, options.withIntegration, bindingPlan);
-      
-      if (program.opts().dryRun) console.log(pc.gray("\n--- DRY RUN RESULT ---\n") + finalCode);
-      else writeFileSync(file, finalCode);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    logger.success(`\n✨ Binding complete in ${duration}s`);
+  });
+
       logger.success(`Bound: ${file}`);
     }
     logger.system(`\nProtocol terminated in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);

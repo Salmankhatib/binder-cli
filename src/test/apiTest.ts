@@ -1,4 +1,4 @@
-﻿import type { TestResult } from './repairLoop.js';
+﻿import type { TestResult } from '../common/types.js';
 import { logger } from '../utils/logger.js';
 
 export async function runApiTest(endpoint: string, mockDataSample: any): Promise<TestResult> {

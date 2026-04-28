@@ -14,6 +14,7 @@
   2. **Shape Integrity**: Verifies that your JSX uses fields that actually exist in the API.
   3. **E2E Integration**: Live data-fetching tests against your running backend.
 - **AI Self-Healing**: Automatically repairs type mismatches and "Rules of Hooks" violations using a stateful LLM loop.
+- **Observability**: New proactive warnings for missing API keys, offline LLMs (Ollama), and missing project dependencies.
 - **Persistent Memory**: Remembers successful bindings in `.binder/cache.json` to speed up future runs.
 
 ## 📦 Installation
@@ -30,7 +31,7 @@ Create a `binder.config.json` in your project root:
 ```json
 {
   "backend": {
-    "python": "./app/main.py"
+    "schemaPath": "./openapi.json"
   },
   "frontend": {
     "generatedDir": "./src/generated"
@@ -67,7 +68,7 @@ Binder acts as the **"Safe Hands"** of your development cycle, handling the comp
 
 ## 📦 How it works in your Repo
 
-1. **Install**: `npm install -g @bindercli/core`
+1. **Install**: `npm install -g @binder/core`
 2. **Setup**: Run `binder init` to scaffold your configuration.
 3. **Bind**: Run `binder bind src/pages/YourPage.tsx`
 4. **Result**: Binder performs the surgery, compiles the file in a virtual environment, and only overwrites your file once the compiler gives a green light.

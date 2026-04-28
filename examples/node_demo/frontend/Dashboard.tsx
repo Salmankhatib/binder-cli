@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-// Clear Mock Usage for Demo
+//  Mock data and functions to simulate API interactions
 const MOCK_PROJECT_LIST = [
   { id: 1, name: "Mock Project Alpha", status: "stable", version: "1.0.0" },
   { id: 2, name: "Mock Project Beta", status: "beta", version: "0.5.0" }

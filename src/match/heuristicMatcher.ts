@@ -6,39 +6,49 @@ export interface HeuristicMatch {
   confidence: number;
 }
 
-export function heuristicMatch(mocks: Array<{ name: string }>, hooks: string[]): Array<HeuristicMatch | null> {
-  logger.system('Running heuristic pattern matcher...');
+export function heuristicMatch(
+  mocks: Array<{ name: string; snippet?: string; source?: string; resolvedContent?: string }>, 
+  hooks: string[],
+  filePath: string = ""
+): Array<HeuristicMatch | null> {
+  logger.system('Running context-aware heuristic matcher...');
   
-  // Deduplicate mocks by name to avoid redundant LLM calls
   const uniqueMocks = Array.from(new Map(mocks.map(m => [m.name, m])).values());
 
   return uniqueMocks.map(mock => {
     const mockNorm = normalizeName(mock.name);
     let best: HeuristicMatch | null = null;
 
+    // Folder Context (e.g., /users/ -> prioritize user hooks)
+    const folderContext = filePath.toLowerCase();
+
     for (const hook of hooks) {
       const hookNorm = normalizeName(hook);
-      
-      // Exact match
-      if (mockNorm === hookNorm) {
-        return { mockName: mock.name, hookName: hook, confidence: 1.0 };
-      }
-      
-      // Contains match (e.g., "sales" in "getSales")
-      if (hookNorm.includes(mockNorm) || mockNorm.includes(hookNorm)) {
-        const confidence = 0.85;
-        if (!best || confidence > best.confidence) {
-          best = { mockName: mock.name, hookName: hook, confidence };
-        }
-      }
-      
-      // Fuzzy match
+      let weight = 0;
+
+      // 1. Name Similarity (Levenshtein)
       const dist = levenshtein(mockNorm, hookNorm);
       const maxLen = Math.max(mockNorm.length, hookNorm.length);
       const similarity = 1 - dist / maxLen;
+      weight += similarity * 0.6; // Base name weight
+
+      // 2. Folder Context Boost (+15%)
+      const hookKeyword = hookNorm.replace('use_', '');
+      if (hookKeyword && folderContext.includes(hookKeyword)) {
+          weight += 0.15;
+      }
+
+      // 3. Value-Type Fingerprinting (if resolved content available)
+      if (mock.resolvedContent) {
+          const mockTags = fingerprint(mock.resolvedContent);
+          const hookTags = fingerprint(hook); // Check hook name for type clues
+          const intersection = mockTags.filter(t => hookTags.includes(t));
+          if (intersection.length > 0) weight += 0.2;
+      }
+
+      const confidence = Math.min(weight, 1.0);
       
-      if (similarity > 0.7) {
-        const confidence = similarity;
+      if (confidence > 0.7) {
         if (!best || confidence > best.confidence) {
           best = { mockName: mock.name, hookName: hook, confidence };
         }
@@ -47,6 +57,14 @@ export function heuristicMatch(mocks: Array<{ name: string }>, hooks: string[]):
     
     return best;
   });
+}
+
+function fingerprint(text: string): string[] {
+    const tags: string[] = [];
+    if (text.includes('@')) tags.push('EMAIL');
+    if (text.match(/\d{4}-\d{2}/)) tags.push('DATE');
+    if (text.match(/[0-9a-f]{8}-/)) tags.push('UUID');
+    return tags;
 }
 
 export function normalizeName(str: string): string {

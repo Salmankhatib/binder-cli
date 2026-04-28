@@ -1,8 +1,8 @@
 export interface Config {
   backend: {
-    /** Absolute or relative path to FastAPI Python file */
-    python?: string;
-    /** URL to running OpenAPI JSON (alternative to python) */
+    /** Path to openapi.json file or URL to running OpenAPI JSON */
+    schemaPath: string;
+    /** Optional base URL for API requests */
     url?: string;
   };
   frontend: {

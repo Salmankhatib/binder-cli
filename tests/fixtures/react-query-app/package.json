@@ -1,0 +1,12 @@
+{
+  "name": "test-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "react": "^18.2.0",
+    "@tanstack/react-query": "^5.0.0"
+  },
+  "devDependencies": {
+    "msw": "^2.0.0",
+    "@types/react": "^18.2.0"
+  }
+}

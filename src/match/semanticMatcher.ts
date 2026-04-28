@@ -1,7 +1,14 @@
 import { Project, SyntaxKind, Type, Node } from 'ts-morph';
 import { logger } from '../utils/logger.js';
 import type { MockFinding } from '../scan/mockScanner.js';
-import type { HookSignature } from './bindingEngine.js';
+
+export interface HookSignature {
+  name: string;
+  method: string;
+  path: string;
+  responseType: string;
+  params?: Array<{ name: string; type: string; required: boolean }>;
+}
 
 export interface SemanticMatch {
   mockName: string;

@@ -6,7 +6,7 @@ We welcome contributions! As an AI-native tool, we value performance, type safet
 
 1. **Clone & Install**:
    ```bash
-   git clone https://github.com/salmankhatib/binder-cli.git
+   git clone https://github.com/salmankhatib/binder.git
    npm install
    ```
 
