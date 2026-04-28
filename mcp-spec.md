@@ -1,40 +1,34 @@
 # 📡 Binder MCP Specification (v1.0)
 
-This document outlines the implementation for the **Binder Model Context Protocol (MCP)** server. Implementing MCP allows Binder to act as a "Technical Infrastructure Provider" for external LLMs (like Claude 3.5, GPT-4o, or agentic IDEs).
+This document outlines the **Binder Model Context Protocol (MCP)** implementation. Binder acts as both an MCP **Client** (using mechanical repair tools) and an MCP **Server** (exposing repo intelligence to external agents).
 
-## 🌍 The "Dual Interface" Concept
-Binder remains a **primary CLI tool**. MCP is simply a high-bandwidth "Hacker Port" that allows an AI to control the Binder Core Engine.
-
-- **Human Workflow**: `npm install -g binder` -> `binder bind <file>`
-- **AI Workflow**: AI Agent calls `binder_mcp` -> Binder Core Engine -> Returns Repo Intelligence.
+## 🌍 The "Dual Role" Concept
+1. **As a Client**: Binder connects to the `ts-repair` MCP server to autonomously fix mechanical syntax and import issues discovered during the compliance check.
+2. **As a Server**: Binder allows external AI agents (Claude, GPT) to control its deterministic binding engine via a standardized toolset.
 
 ---
 
-## 🛠️ MCP Toolset (Capabilities)
+## 🛠️ MCP Toolset (Server Capabilities)
 
-The Binder MCP server exposes the following tools to the AI Agent:
+### 1. `get_compliance_report`
+- **Goal**: Run the Virtual Compiler and return errors for a specific file.
+- **Input**: `filePath: string`
+- **Output**: Detailed TypeScript diagnostics mapped to your `tsconfig.json`.
 
-### 1. `scan_project`
-- **Goal**: Find every unbound mock in the entire monorepo.
-- **Input**: `rootPath: string`
-- **Output**: A JSON list of files, mock variable names, and inferred data shapes.
+### 2. `trigger_safe_bind`
+- **Goal**: Bind a file using the deterministic safe-only engine.
+- **Input**: `filePath: string`
+- **Output**: Success status and a list of `TODO(BINDER)` manual review points.
 
-### 2. `get_repo_map`
-- **Goal**: Provide a full map of the API surface.
-- **Output**: JSON containing:
-    - List of available hooks.
-    - Exported model interfaces.
-    - Calculated relative paths for generated code.
+### 3. `get_learned_patterns`
+- **Goal**: Share the global cache of successful bindings.
+- **Output**: JSON of `mockName` -> `hookName` mappings learned from the user.
 
-### 3. `apply_surgical_binding`
-- **Goal**: Trigger the Binder Core to bind a specific file.
-- **Input**: `filePath: string`, `options: BindingOptions`
-- **Output**: Success status and a git-style diff of the changes made.
+---
 
-### 4. `run_diagnostics`
-- **Goal**: Run the Virtual Compiler (`ts-morph`) and return errors.
-- **Input**: `code: string`, `filePath: string`
-- **Output**: Precise TypeScript errors with line numbers and "Diagnostic Suggestions."
+## 📂 Resources (Shared Data)
+- `binder://learned-rules`: The contents of `.binder/cache.json`.
+- `binder://api-hooks`: The AST-reflected list of available API hooks.
 
 ---
 

@@ -1,49 +1,44 @@
 # 🏗️ Binder Architecture Deep Dive
 
-Binder is built on a **Feedback-Driven Transformation Pipeline**. Instead of generating code and hoping it works, Binder treats code generation as an iterative search problem solved by a compiler.
+Binder is built on a **Deterministic Transformation Pipeline**. It eliminates hallucinations by replacing generative AI with AST-based analysis and mechanical compliance checks.
 
 ## 🛠️ The Transformation Pipeline
 
-Binder operates in four distinct phases:
+### 1. Discovery Phase (The Scout)
+- **Repo Mapping**: Crawls the workspace to find `openapi.json` and `tsconfig.json`.
+- **API Reflection**: Uses AST analysis to discover every available hook in your generated client, bypassing fragile regex.
+- **Mock Tracer**: Follows imports and scans local variables to identify mock data signatures.
 
-### 1. Discovery Phase
-- **Backend**: Scans the Python/FastAPI entry point to extract a standard OpenAPI schema.
-- **Frontend**: Uses an AST-based **Mock Scanner** to identify data targets (variables like `MOCK_USERS` or generic names like `data`).
-- **Hooks**: Uses **Orval** to generate a type-safe client and then performs a secondary AST scan to discover every available `useQuery` and `useMutation` hook.
+### 2. Mapping Phase (Hybrid Matcher)
+Binder links mocks to hooks via a dual-match waterfall:
+- **Heuristic Matcher**: Uses normalized fuzzy matching and CRUD pattern detection (e.g., `MOCK_USER` -> `useGetUser`).
+- **Semantic Shape Matcher**: Compares the data structure of mocks with API return types. If the keys align, confidence is boosted.
+- **Global Memory**: If a user manually confirms a match, it is cached globally and auto-applied in the future.
 
-### 2. Mapping Phase (The Matcher)
-Binder uses a high-confidence waterfall to link mocks to hooks:
-- **Layer 1: Semantic Shape Matcher**: Compiles the mock object and the API return type. If the keys align (e.g., both have `email` and `uid`), it's a match.
-- **Layer 2: Heuristic Matcher**: Uses fuzzy name matching and CRUD pattern detection (e.g., `handleDelete` -> `useDeleteUser`).
-- **Layer 3: LLM Broker**: Only triggered for ambiguous cases. The LLM suggests a "Transformer" function if the shapes differ slightly.
+### 3. Surgery Phase (Safe AST Rewriter)
+- **Safety Engine**: Detects "Safe Patterns" (direct variable assignment, simple maps). If a pattern is complex (conditionals, multiple transforms), it generates a `TODO(BINDER)` manual review block.
+- **AST Surgery**: Uses `ts-morph` for precise changes, preserving hook order and scope.
+- **UI Templates**: Injects user-defined loading/error components (e.g., `<Skeleton />`) rather than generic HTML.
 
-### 3. Surgery Phase (The AST Rewriter)
-Unlike regex-based tools, Binder uses **TS-Morph** to perform surgical changes:
-- **Import Management**: Automatically calculates relative paths and manages named imports.
-- **Aliasing**: Uses destructuring aliasing (`const { data: MOCK_DATA } = useHook()`) to minimize changes to your existing JSX logic.
-- **Rule Enforcement**: A **Boundary Scanner** detects if hooks are called inside loops/conditionals and proactively moves them to the component root.
-
-### 4. Validation Phase (The Self-Healing Loop)
-This is the "Compiler Gate" that ensures 100% reliability:
-- **Layer 0 (Type Safety)**: A virtual TypeScript environment compiles the rewritten code.
-- **Layer 1 (Shape Integrity)**: Uses the `TypeChecker` to ensure every property access in your UI exists on the API model.
-- **Layer 2 (E2E)**: (Optional) Fetches real data to verify structural compatibility.
-
-**The Self-Healing Loop**: If any layer fails, the error + code + history are sent to the LLM. The LLM suggests a fix, which is then re-verified by the loop.
+### 4. Validation Phase (Compliance Check)
+- **Virtual Compiler**: Every rewrite is verified against the user's actual `tsconfig.json`.
+- **Autonomous Repair**: If the rewrite has mechanical errors (missing imports), Binder calls an **MCP (Model Context Protocol)** server like `ts-repair` to fix it autonomously.
+- **The Revert Gate**: If the file doesn't compile after repair, the change is reverted and flagged for manual review.
 
 ## 📊 Data Flow Graph
 
 ```mermaid
 graph TD
-    A[OpenAPI Schema] --> B[Orval Hook Generator]
-    C[Source Code] --> D[AST Mock Scanner]
-    B --> E[Semantic Matcher]
+    A[OpenAPI Schema] --> B[API Hook Reflection]
+    C[Source Code] --> D[Mock Tracer]
+    B --> E[Hybrid Matcher]
     D --> E
-    E --> F[AST Surgeon]
-    F --> G[Virtual Compiler]
-    G -- "Error Found" --> H[Stateful LLM Repair]
+    E --> F[Safe Rewriter]
+    F --> G[Compliance Check]
+    G -- "Mechanical Error" --> H[MCP Autonomous Repair]
     H --> G
-    G -- "Success" --> I[Deliver File]
+    G -- "Success" --> I[Commit to Disk]
+    G -- "Fatal Error" --> J[Revert & Leave TODO]
 ```
 
 ## 💾 Persistent Memory

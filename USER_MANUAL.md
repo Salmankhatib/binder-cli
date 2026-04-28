@@ -1,66 +1,45 @@
-# 📖 Binder User Manual & Best Practices
+# 📖 Binder User Manual
 
-Binder is a high-precision CLI tool that automates the connection between your React frontend and any backend (FastAPI, Node.js, Go, etc.) by replacing static mock data with live, type-safe API hooks.
+Binder is a high-precision CLI tool that automates the connection between your React frontend and any OpenAPI-compliant backend.
 
 ---
 
 ## 🛠️ Getting Started
 
-### 1. The Configuration File
-Binder requires a `binder.config.json` in your root directory.
+### 1. Initialization
+Run `binder init`. Binder will automatically:
+- Detect your `openapi.json`.
+- Identify your loading components (e.g., `Skeleton`).
+- Offer to install missing dependencies like `@tanstack/react-query`.
+
+### 2. Configuration (`binder.config.json`)
+You can manually tweak the auto-detected settings:
 
 ```json
 {
-  "backend": {
-    "python": "./backend/main.py",
-    "url": "http://localhost:8000"
-  },
+  "backend": { "schemaPath": "./openapi.json" },
   "frontend": {
-    "generatedDir": "./src/generated"
-  },
-  "llm": {
-    "provider": "openai",
-    "model": "gpt-4o",
-    "temperature": 0.1
+    "generatedDir": "./src/generated",
+    "loadingTemplate": "<TableSkeleton />",
+    "errorTemplate": "<ErrorBanner message='Failed to load' />"
   }
 }
-```
-
-### 2. The `.env` File
-Create a `.env` in the root to store your AI provider keys:
-```env
-OPENAI_API_KEY=sk-...
-# OR
-GOOGLE_API_KEY=AIza...
-# OR (for Local AI)
-OLLAMA_HOST=http://localhost:11434
 ```
 
 ---
 
 ## 🌟 Best Practices
 
-### 1. Naming Conventions (Crucial)
-Binder's **Semantic Matcher** is most effective when your mocks follow a clear naming pattern.
-- **Good**: `const MOCK_USER_LIST = [...]`, `const MOCK_SALES_DATA = [...]`
-- **Avoid**: `const data = [...]` (though supported, it increases AI cost and hallucination risk).
+### 1. Naming Conventions
+Binder is most effective when your mocks follow a clear naming pattern (e.g. `MOCK_USER_LIST`). 
 
-### 2. Handle Global State & Auth (Mutators)
-**Pro Recommendation**: Create a `custom-instance.ts` in your `src/generated` directory. Binder is pre-configured to detect this file via Orval. This allows you to:
-- Inject Bearer Tokens from localStorage.
-- Set global Axios/Fetch headers.
-- Manage base URLs dynamically.
+### 2. The 80/20 Philosophy
+Binder is designed to handle the 80% of "simple" bindings automatically. 
+- **Safe Patterns**: Direct assignments, simple array maps.
+- **Manual Review**: For complex patterns (ternaries, multiple transformations), Binder will insert a TODO block. **Search for "TODO(BINDER)"** in your editor to find items requiring your expertise.
 
-Example `custom-instance.ts`:
-```typescript
-export const customInstance = <T>(config: any): Promise<T> => {
-  const token = localStorage.getItem('token');
-  return fetch(config.url, {
-    ...config,
-    headers: { ...config.headers, Authorization: `Bearer ${token}` }
-  }).then(res => res.json());
-};
-```
+### 3. Global Memory
+Binder saves your binding decisions in `.binder/cache.json`. This memory is shared across your workspace. If you bind `MOCK_USER` to `useGetUser` once, Binder will auto-bind it in all other files.
 
 ---
 
@@ -68,21 +47,18 @@ export const customInstance = <T>(config: any): Promise<T> => {
 
 | Command | Description |
 |:--- |:--- |
-| `binder bind <file>` | Binds a single file to the API. |
-| `binder bind <dir> --batch` | Scans and binds all `.tsx` files in a directory. |
-| `binder bind <file> --with-integration` | Runs a live E2E test against the backend after binding. |
-| `binder bind <file> --dry-run` | Preview changes in the console without writing to disk. |
-| `binder validate` | Scans the project for any remaining unbound mocks. |
+| `binder init` | Run this first to auto-detect project infrastructure. |
+| `binder bind <file>` | Binds a single file. |
+| `binder bind <dir> --batch` | Binds all files in a directory. |
+| `binder tutorial` | Guide on Binder workflow and pro tips. |
 
 ---
 
-## 🛡️ The Fail-Safe System
-If Binder fails to bind a file, it will attempt to **Self-Heal** up to 3 times per layer.
-- **Layer 1**: Type safety check.
-- **Layer 2**: Shape mismatch check.
-- **Layer 3**: Runtime integration check.
-
-If it fails all attempts, it will deliver a report of the specific data mismatches instead of breaking your code.
+## 🛡️ The Compliance System
+If Binder fails to bind a file due to a type error, it doesn't break your code. It:
+1. **Reverts** the change.
+2. **Inserts** a manual review comment with the specific TypeScript error.
+3. **Flags** it for manual review in the CLI summary.
 
 Command	Flag	Description
 bind <path>	--batch	Binds all files in the directory.
