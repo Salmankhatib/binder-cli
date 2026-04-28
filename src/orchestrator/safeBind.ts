@@ -4,9 +4,12 @@ import { resolve, dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { safeRewrite } from '../rewrite/safeRewriter.js';
 import { heuristicMatch } from '../match/heuristicMatcher.js';
+import { semanticMatch } from '../match/semanticMatcher.js';
 import { rewriteFile } from '../rewrite/astRewriter.js';
 import { logger } from '../utils/logger.js';
 import { runTypeCheck } from '../test/typeCheck.js';
+import { getCachedBinding, saveBinding } from '../utils/cache.js';
+import { BinderMCP } from '../mcp/client.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
 import type { BindingPlan } from '../common/types.js';
@@ -24,6 +27,9 @@ export async function safeBind(
     todos: [] as Array<{mock: MockFinding, hook: string, reason: string, todoComment: string}>
   };
 
+  const mcp = new BinderMCP();
+  await mcp.initialize();
+
   const tsConfigPath = findNearestTsConfig(dirname(filePath));
   const project = new Project({
     tsConfigFilePath: tsConfigPath || undefined,
@@ -32,6 +38,7 @@ export async function safeBind(
   });
   
   const sourceFile = project.addSourceFileAtPath(filePath);
+  const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
   const originalCode = sourceFile.getFullText();
   
   for (const mock of mocks) {
@@ -47,17 +54,34 @@ Once the frontend components are bound to hooks, you should remove this handler 
       continue;
     }
 
-    // First, find matching hook using heuristics
-    const matches = heuristicMatch([mock], hookNames, filePath);
-    const bestMatch = matches[0];
+    // 1. Check Cache First (Global Suggestion)
+    const cached = getCachedBinding(filePath, mock.name);
+    let hookName = (cached as any)?.hookName;
+    let confidence = cached ? 1.0 : 0;
+
+    if (!hookName) {
+        // 2. Heuristic Match
+        const hMatches = heuristicMatch([mock], hookNames, filePath);
+        const hBest = hMatches[0];
+
+        // 3. Semantic Match (Booster)
+        const sMatches = semanticMatch([mock], hookNames.map(n => ({name: n, method: 'GET', path: '/', responseType: 'any'})), apiContent);
+        const sBest = sMatches.find(m => m.mockName === mock.name);
+
+        if (hBest && sBest && hBest.hookName === sBest.hookName) {
+            hookName = hBest.hookName;
+            confidence = Math.max(hBest.confidence, sBest.confidence, 0.9);
+        } else if (hBest && hBest.confidence > 0.8) {
+            hookName = hBest.hookName;
+            confidence = hBest.confidence;
+        }
+    }
     
-    if (!bestMatch || bestMatch.confidence < 0.5) {
+    if (!hookName || confidence < 0.5) {
       results.skip++;
       logger.debug(`Skipped: ${mock.name} (No confident hook match)`);
       continue;
     }
-
-    const hookName = bestMatch.hookName;
     
     // Check if safe to auto-convert
     const rewriteResult = safeRewrite(mock, hookName, sourceFile);
@@ -68,20 +92,28 @@ Once the frontend components are bound to hooks, you should remove this handler 
           bindings: [{
             mockName: mock.name,
             hookName: hookName,
-            confidence: rewriteResult.confidence,
-            actionType: 'READ'
-          }]
+            confidence: confidence,
+            actionType: 'READ',
+            loadingStrategy: config.frontend.loadingTemplate ? 'early-return-skeleton' : 'none',
+            errorStrategy: config.frontend.errorTemplate ? 'early-return-error' : 'none'
+          }],
+          loadingTemplate: config.frontend.loadingTemplate,
+          errorTemplate: config.frontend.errorTemplate
         };
         
         try {
-          const rewritten = rewriteFile(filePath, plan, config.frontend.generatedDir);
+          let rewritten = rewriteFile(filePath, plan, config.frontend.generatedDir);
           
+          // --- MCP AUTONOMOUS REPAIR ---
+          rewritten = await mcp.autoFix(filePath, rewritten);
+
           // --- COMPLIANCE CHECK ---
           logger.system(`  [Compliance] Validating rewrite for ${mock.name}...`);
           const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
           
           if (check.passed) {
             writeFileSync(filePath, rewritten);
+            saveBinding(filePath, mock.name, { hookName });
             results.auto++;
             logger.success(`✓ Auto-converted: ${mock.name} → ${hookName}`);
           } else {

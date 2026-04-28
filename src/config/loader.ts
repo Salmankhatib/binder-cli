@@ -7,27 +7,17 @@ import type { Config } from './types.js';
 const configSchema = z.object({
   backend: z.object({
     schemaPath: z.string(),
-    url: z.string().url().optional()
+    url: z.string().optional()
   }),
   frontend: z.object({
-    generatedDir: z.string().default('./src/generated')
+    generatedDir: z.string().default('./src/generated'),
+    loadingTemplate: z.string().optional(),
+    errorTemplate: z.string().optional()
   }),
   orval: z.object({
     client: z.enum(['react-query', 'swr', 'vue-query']).default('react-query'),
     baseUrl: z.string().optional()
-  }),
-  llm: z.object({
-    provider: z.enum(['ollama', 'openai', 'gemini']).default('ollama'),
-    model: z.string().default('codellama:13b'),
-    host: z.string().default('http://localhost:11434'),
-    temperature: z.number().min(0).max(1).default(0.2),
-    maxRetries: z.number().min(1).max(5).default(3)
-  }),
-  mcpServers: z.array(z.object({
-    name: z.string(),
-    command: z.string(),
-    args: z.array(z.string())
-  })).optional()
+  }).optional().default({ client: 'react-query' })
 });
 
 function findUp(filename: string, startDir: string): string | null {

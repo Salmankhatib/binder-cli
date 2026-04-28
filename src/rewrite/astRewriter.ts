@@ -1,7 +1,7 @@
 ﻿import { Project, SyntaxKind, Node, SourceFile, ImportDeclaration, VariableDeclaration, FunctionDeclaration } from "ts-morph";
 import { relative, dirname, resolve } from "path";
 import { logger } from "../utils/logger.js";
-import type { BindingPlan } from "../common/types.js";
+import type { BindingPlan, Binding } from "../common/types.js";
 
 export function rewriteFile(
   filePath: string,
@@ -136,34 +136,59 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
         // useMutation hook
         const hookCallLine = `const ${targetName} = ${binding.hookName}();`;
         if (!body.getText().includes(`${binding.hookName}(`)) {
-          body.insertStatements(0, hookCallLine);
+          insertAfterLastHook(body, hookCallLine);
         }
       } else {
         // useQuery hook with Strategy support
         const hookVar = targetName;
+        
+        // FIX 3: Detect Mandatory Parameters
+        const hookDecl = sourceFile.getImportDeclaration(i => i.getModuleSpecifierValue().includes('api'))
+          ?.getModuleSpecifier().getSymbol()?.getDeclarations()[0]; // Simplified lookup
+          
         const hookCall = `${binding.hookName}()`;
         
         // Destructure based on strategy
         let hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${hookCall};`;
         
         if (!body.getText().includes(`${binding.hookName}(`)) {
-          body.insertStatements(0, hookCallLine);
+          insertAfterLastHook(body, hookCallLine);
           
           // Apply Loading Strategy
           if (binding.loadingStrategy === 'early-return-skeleton') {
-              body.insertStatements(1, `if (${hookVar}Loading) return <div>Loading ${hookVar}...</div>;`);
-          } else if (binding.loadingStrategy === 'suspense') {
-              logger.warning(`  [Strategy] Suspense requested for ${hookVar}. Ensure parent component has <Suspense>.`);
+              const template = plan.loadingTemplate || `<div>Loading ${hookVar}...</div>`;
+              insertStatementAfter(body, hookCallLine, `if (${hookVar}Loading) return ${template};`);
           }
 
           // Apply Error Strategy
           if (binding.errorStrategy === 'early-return-error') {
-              body.insertStatements(binding.loadingStrategy === 'early-return-skeleton' ? 2 : 1, 
-                `if (${hookVar}Error) return <div>Error loading ${hookVar}</div>;`);
+              const template = plan.errorTemplate || `<div>Error loading ${hookVar}</div>`;
+              insertStatementAfter(body, hookCallLine, `if (${hookVar}Error) return ${template};`);
           }
         }
       }
     }
+  }
+}
+
+function insertAfterLastHook(body: Node, statement: string) {
+  const statements = (body as any).getStatements();
+  let lastHookIndex = -1;
+  
+  for (let i = 0; i < statements.length; i++) {
+    if (statements[i].getText().includes('use')) {
+      lastHookIndex = i;
+    }
+  }
+  
+  (body as any).insertStatements(lastHookIndex + 1, statement);
+}
+
+function insertStatementAfter(body: Node, afterText: string, statement: string) {
+  const statements = (body as any).getStatements();
+  const index = statements.findIndex((s: any) => s.getText().includes(afterText));
+  if (index !== -1) {
+    (body as any).insertStatements(index + 1, statement);
   }
 }
 

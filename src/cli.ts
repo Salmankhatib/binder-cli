@@ -43,75 +43,84 @@ program
   .description("Initialize a new Binder project with a TUI")
   .action(async () => {
     logger.startSpinner("📡 Handshaking with environment...");
-    await new Promise(r => setTimeout(r, 1000));
+    const projectMap = await discoveryPhase({ backend: { schemaPath: "", url: "" }, frontend: { generatedDir: "" } } as any);
     logger.stopSpinner(true, "Protocol sequence established.");
     
     await revealLogo();
     console.log(pc.bold("\n🚀 WELCOME TO BINDER INITIALIZATION\n"));
     
-    const checkAndInstall = async (dep: string) => {
-        const isInstalled = await new Select({
-            message: `Is ${pc.yellow(dep)} already installed?`,
-            choices: ['Yes', 'No']
+    // 1. Dependency Check
+    const deps = projectMap.mainDependencies;
+    if (!deps.includes("@tanstack/react-query") || !deps.includes("axios")) {
+        const shouldInstall = await new Select({
+            message: `Recommended dependencies ${pc.yellow("@tanstack/react-query, axios")} are missing. Install?`,
+            choices: ['Yes (Install Now)', 'No (I will do it manually)']
         }).run();
         
-        if (isInstalled === 'No') {
-            const shouldInstall = await new Select({
-                message: `Would you like Binder to run ${pc.cyan("npm install " + dep)}?`,
-                choices: ['Yes (Install Now)', 'No (I will do it manually)']
-            }).run();
-            
-            if (shouldInstall.startsWith('Yes')) {
-                logger.startSpinner(`Installing ${dep}...`);
-                try {
-                    execSync(`npm install ${dep}`, { stdio: 'ignore' });
-                    logger.stopSpinner(true, `${dep} installed successfully.`);
-                } catch (e) {
-                    logger.stopSpinner(false, `Failed to install ${dep}.`);
-                }
+        if (shouldInstall.startsWith('Yes')) {
+            logger.startSpinner(`Installing dependencies...`);
+            try {
+                execSync(`npm install @tanstack/react-query axios`, { stdio: 'ignore' });
+                logger.stopSpinner(true, `Dependencies installed.`);
+            } catch (e) {
+                logger.stopSpinner(false, `Failed to install dependencies.`);
             }
         }
-    };
-
-    try {
-        await checkAndInstall("@tanstack/react-query");
-        await checkAndInstall("axios");
-
-        console.log(pc.bold("\n🤖 AI CORE CONFIGURATION"));
-        const provider = await new Select({
-            message: 'Choose your AI Engine:',
-            choices: [
-                { name: 'openai', message: 'OpenAI (GPT-4o/Turbo)' },
-                { name: 'gemini', message: 'Google Gemini (Flash/Pro)' },
-                { name: 'ollama', message: 'Ollama (Local/Private)' },
-                { name: 'manual', message: 'Custom / Manual Setup' }
-            ]
-        }).run();
-        
-        const configPath = resolve(process.cwd(), "binder.config.json");
-        const defaultConfig = {
-            backend: { schemaPath: "./openapi.json", url: "http://localhost:8000" },
-            frontend: { generatedDir: "./src/generated" },
-            llm: { 
-                provider: provider === 'manual' ? "openai" : provider, 
-                model: provider === 'openai' ? "gpt-4o" : (provider === 'gemini' ? "gemini-1.5-flash" : (provider === 'ollama' ? "codellama" : "YOUR_MODEL_HERE")) 
-            },
-            orval: { client: "react-query" },
-            mcpServers: []
-        };
-        
-        writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
-        logger.success("\n✨ binder.config.json created successfully.");
-
-        console.log(pc.gray(divider));
-        logger.success("✔ BINDER INITIALIZED SUCCESSFULLY!");
-        logger.info("\n💡 NEXT STEPS:");
-        console.log(pc.white("  1. Configure your API keys in ") + pc.cyan(".env"));
-        console.log(pc.white("  2. Run ") + pc.green("binder tutorial") + pc.white(" for usage details.\n"));
-
-    } catch (err) {
-        console.log(pc.red("\n✖ Initialization interrupted."));
     }
+
+    // 2. Schema Discovery
+    let schemaPath = projectMap.tree.find(f => f.includes("openapi.json") || f.includes("swagger.json")) || "./openapi.json";
+    const schemaConfirm = await new Toggle({
+        message: `Detected schema at ${pc.cyan(schemaPath)}. Use this?`,
+        initial: true
+    }).run();
+    
+    if (!schemaConfirm) {
+        schemaPath = await pkg.prompt({
+            type: 'input',
+            name: 'path',
+            message: 'Enter path to your OpenAPI schema (local or URL):'
+        }).then((r: any) => r.path);
+    }
+
+    // 3. UI Template Discovery
+    const hasSkeleton = projectMap.tree.some(f => f.toLowerCase().includes("skeleton"));
+    let loadingTemplate = hasSkeleton ? "<Skeleton />" : "<div>Loading...</div>";
+    
+    const uiConfirm = await new Toggle({
+        message: `Suggested loading template: ${pc.yellow(loadingTemplate)}. Use this?`,
+        initial: true
+    }).run();
+
+    if (!uiConfirm) {
+        loadingTemplate = await pkg.prompt({
+            type: 'input',
+            name: 'val',
+            message: 'Enter custom loading JSX (e.g. <MySpinner />):'
+        }).then((r: any) => r.val);
+    }
+
+    const configPath = resolve(process.cwd(), "binder.config.json");
+    const defaultConfig = {
+        backend: { 
+            schemaPath: schemaPath, 
+            url: "http://localhost:8000" 
+        },
+        frontend: { 
+            generatedDir: "./src/generated",
+            loadingTemplate: loadingTemplate,
+            errorTemplate: "<div>Error loading data</div>"
+        },
+        orval: { client: "react-query" }
+    };
+    
+    writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+    logger.success("\n✨ binder.config.json created successfully.");
+
+    console.log(pc.gray(divider));
+    logger.success("✔ BINDER INITIALIZED SUCCESSFULLY!");
+    logger.info("\n💡 NEXT STEPS:");
+    console.log(pc.white("  1. Run ") + pc.green("binder bind <file>") + pc.white(" to start migrating mocks.\n"));
   });
 
 program
@@ -120,11 +129,15 @@ program
   .action(async () => {
     await revealLogo();
     logger.box("BINDER WORKFLOW GUIDE", [
-      "1. CONFIG: Point to your openapi.json file (local or URL).",
-      "2. BIND:   Run 'binder bind <file>' to swap mocks.",
-      "3. TEST:   Use '--with-integration' for E2E checks.",
-      "4. AUTH:   Add 'custom-instance.ts' for global auth."
+      "1. INIT:   Run 'binder init' to auto-detect your project structure.",
+      "2. CONFIG: Check binder.config.json. We've auto-detected your schema and UI components.",
+      "3. BIND:   Run 'binder bind <file>' to swap mocks. Use --batch for directories.",
+      "4. REVIEW: For complex cases, Binder leaves TODOs. Follow the instructions in the comments.",
+      "5. CACHE:  Binder remembers your choices! The more you use it, the more it auto-binds."
     ]);
+    console.log(pc.bold("\n💡 PRO TIPS:"));
+    console.log(pc.cyan("  --safe-only: ") + pc.white("Only auto-converts 100% safe patterns (Default)."));
+    console.log(pc.cyan("  --ignore:    ") + pc.white("Skip specific mocks if they are too complex."));
   });
 
 program
@@ -167,7 +180,7 @@ program
     const { manualReviewMode } = await import("./cli/reviewMode.js");
 
     for (const file of files) {
-      logger.system(`\n>>> Processing: ${file}`);
+      logger.system(`\n>>> Analyzing: ${pc.bold(file)}`);
       let mocks = scanMocks(file);
       
       if (options.ignore) {
@@ -180,15 +193,25 @@ program
       }
 
       if (mocks.length === 0) {
-        logger.warning("No mocks detected after filtering. Skipping.");
+        logger.warning("No mocks detected in this file. Skipping.");
         continue;
       }
       
-      const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
+      const apiPath = join(config.frontend.generatedDir, "api.ts");
+      if (!existsSync(apiPath)) {
+          logger.error(`API hooks not found at ${apiPath}. Did you run "binder bind" once already?`);
+          continue;
+      }
+
+      const apiContent = readFileSync(apiPath, "utf-8");
       const hookNames = [...apiContent.matchAll(/export (?:function|const) (use\w+)/g)].map(m => m[1]);
       
-      // PHASE 2 & 3: HEURISTIC MATCHING & SAFETY CHECK
+      // RUN BINDING ENGINE
       const bindResults = await safeBind(mocks, file, config, hookNames);
+
+      if (bindResults.auto > 0) {
+          logger.success(`✔ Successfully auto-bound ${bindResults.auto} mocks.`);
+      }
 
       if (bindResults.todos.length > 0) {
         const manualResults = await manualReviewMode(bindResults.todos);
@@ -206,7 +229,7 @@ program
             };
             const rewritten = rewriteFile(file, plan as any, config.frontend.generatedDir);
             writeFileSync(file, rewritten);
-            logger.success(`✓ Manual Override: ${res.mock.name} → ${res.hook}`);
+            logger.success(`✓ Manual Override applied for ${res.mock.name}.`);
           }
         }
       }

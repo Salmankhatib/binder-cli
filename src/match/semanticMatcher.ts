@@ -26,8 +26,15 @@ export function semanticMatch(
 ): SemanticMatch[] {
   logger.system('Running semantic shape matcher...');
   
-  const project = new Project({ useInMemoryFileSystem: true });
+  const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { jsx: 4 } });
   const apiFile = project.createSourceFile('api.ts', apiContent);
+  
+  // FIX 5: Real API Discovery using AST
+  const allHooks = apiFile.getExportedDeclarations();
+  const hookFunctions = Array.from(allHooks.entries())
+    .filter(([name]) => name.startsWith('use'))
+    .map(([name, decls]) => ({ name, decl: decls[0] }));
+
   const matches: SemanticMatch[] = [];
 
   for (const mock of mocks) {

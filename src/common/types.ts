@@ -12,6 +12,8 @@ export interface Binding {
 
 export interface BindingPlan {
   bindings: Binding[];
+  loadingTemplate?: string;
+  errorTemplate?: string;
 }
 
 export interface TestResult {
