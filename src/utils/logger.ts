@@ -16,6 +16,7 @@ export const logger = {
   success: (msg: string) => console.log(pc.green('✔'), msg),
   error: (msg: string) => console.log(pc.red('✖'), msg),
   warning: (msg: string) => console.log(pc.yellow('⚠'), msg),
+  debug: (msg: string) => console.log(pc.gray('DEBUG:'), msg),
   
   // Step with tech prefix
   step: (label: string, detail?: string) => {

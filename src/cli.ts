@@ -240,9 +240,4 @@ program
     }
   });
 
-      logger.success(`Bound: ${file}`);
-    }
-    logger.system(`\nProtocol terminated in ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
-  });
-
 program.parse();

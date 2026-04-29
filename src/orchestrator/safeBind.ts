@@ -12,7 +12,7 @@ import { runTypeCheck } from '../test/typeCheck.js';
 import { generateCompatibilityTest } from '../test/compatibilityTest.js';
 import { getCachedBinding, saveBinding, recordPatternSuccess } from '../utils/cache.js';
 import { BinderMCP } from '../mcp/client.js';
-import { findAllUsages } from '../analysis/usageFinder.js';
+import { findAllUsages, generateSignature } from '../analysis/usageFinder.js';
 import { tracePropDrilling } from '../analysis/propTracer.js';
 import { LearningEngine, calculateConfidence } from '../learning/engine.js';
 import { generateShapeRemapper } from '../rewrite/shapeRemapper.js';
@@ -87,16 +87,23 @@ Once the frontend components are bound to hooks, you should remove this handler 
 
         const scores: Record<string, number> = {};
         for (const name of hookNames) {
-            const h = hMatches.find(m => m?.hookName === name);
-            const s = sMatches.find(m => m?.hookName === name);
-            const c = cMatches.find(m => m?.hookName === name);
-            scores[name] = (h?.confidence || 0) * 0.35 + (s?.confidence || 0) * 0.35 + (c?.confidence || 0) * 0.30;
+            const h = hMatches.find(m => m?.hookName === name)?.confidence || 0;
+            const s = sMatches.find(m => m?.hookName === name)?.confidence || 0;
+            const c = cMatches.find(m => m?.hookName === name)?.confidence || 0;
+            
+            // Ensemble Score: Use the strongest signal
+            scores[name] = Math.max(h, s, c);
         }
 
         const sorted = Object.entries(scores).filter(([_, s]) => s > 0).sort((a, b) => b[1] - a[1]);
-        if (sorted.length > 0 && sorted[0][1] >= 0.6) {
+        if (sorted.length > 0 && (sorted[0][1] >= 0.6)) {
             hookName = sorted[0][0];
             const ensembleScore = sorted[0][1];
+            confidence = ensembleScore;
+            
+            if (sorted.length > 1 && (sorted[0][1] - sorted[1][1] < 0.2)) {
+                ambiguous = true;
+            }
             
             // Learning Engine Boost (Phase 9)
             const prediction = engine.predict({
@@ -191,7 +198,8 @@ Once the frontend components are bound to hooks, you should remove this handler 
 async function insertTodoComment(sourceFile: any, mock: MockFinding, comment: string) {
   const line = mock.line;
   // Find the node at the line
-  const node = sourceFile.getDescendantAtPos(sourceFile.getStartOfLinePos(line));
+  const pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, 0);
+  const node = sourceFile.getDescendantAtPos(pos);
   if (node) {
     const parent = node.getParentWhile(n => n.getStartLineNumber() === line) || node;
     parent.replaceWithText(`${comment}\n${parent.getText()}`);

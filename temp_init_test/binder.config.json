@@ -1,0 +1,14 @@
+{
+  "backend": {
+    "schemaPath": "./openapi.json",
+    "url": "http://localhost:8000"
+  },
+  "frontend": {
+    "generatedDir": "./src/generated",
+    "loadingTemplate": "<div>Loading...</div>",
+    "errorTemplate": "<div>Error loading data</div>"
+  },
+  "orval": {
+    "client": "react-query"
+  }
+}

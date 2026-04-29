@@ -47,6 +47,9 @@ export async function discoveryPhase(config: Config): Promise<ProjectMap> {
 
   logger.stopSpinner(true, "Discovery complete. Repository map established.");
 
+  return { tree: files, packageJson, mainDependencies: mainDeps };
+}
+
 export function detectMonorepo(): { type: string, packages: string[] } | null {
   if (existsSync('pnpm-workspace.yaml')) {
     // Simplified pnpm discovery

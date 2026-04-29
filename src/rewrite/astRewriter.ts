@@ -31,6 +31,9 @@ export function rewriteFile(
   // 1. Remove mock imports
   removeMockImports(sourceFile, mockNames);
   
+  // 1.5 Remove local mock variable declarations
+  removeMockDeclarations(sourceFile, mockNames);
+  
   // 2. Import Management
   const importPath = calculateImportPath(filePath, generatedDir);
   ensureHookImports(sourceFile, hookNames, importPath);
@@ -50,6 +53,15 @@ function calculateImportPath(targetFile: string, generatedDir: string): string {
   if (!rel) rel = ".";
   if (!rel.startsWith(".")) rel = "./" + rel;
   return `${rel}/api`;
+}
+
+function removeMockDeclarations(sourceFile: SourceFile, mockNames: Set<string>): void {
+  sourceFile.getVariableDeclarations().forEach(decl => {
+    if (mockNames.has(decl.getName())) {
+      const statement = decl.getFirstAncestorByKind(SyntaxKind.VariableStatement);
+      statement?.remove();
+    }
+  });
 }
 
 function removeMockImports(sourceFile: SourceFile, mockNames: Set<string>): void {
@@ -114,21 +126,25 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
           
           if (identifier) {
             logger.system(`  [Surgery] Cleaning name: ${binding.mockName} -> ${cleanName}`);
-            sourceFile.renameIdentifier(binding.mockName, cleanName);
+            identifier.rename(cleanName);
             targetName = cleanName;
           }
       }
 
-      // Check if the mock is an existing function we should replace
+      // Check if the mock is an existing function or variable we should replace
       const existingFunc = body.getVariableDeclaration(targetName) || 
                            sourceFile.getFunction(targetName) ||
                            body.getDescendantsOfKind(SyntaxKind.FunctionDeclaration).find(f => f.getName() === targetName);
 
-      if (existingFunc && isMutation) {
-          logger.system(`  [Surgery] Replacing mock function "${targetName}" with mutation hook`);
+      if (existingFunc) {
+          logger.system(`  [Surgery] Replacing existing declaration of "${targetName}" with hook/mutation`);
           if (Node.isVariableDeclaration(existingFunc)) {
               const statement = existingFunc.getFirstAncestorByKind(SyntaxKind.VariableStatement);
-              statement?.remove();
+              // Only remove if it's a "mock" declaration (e.g. uses useQuery or is a mock func)
+              const text = statement?.getText() || "";
+              if (text.includes('useQuery') || text.includes('Promise.resolve') || isMutation) {
+                statement?.remove();
+              }
           } else {
               (existingFunc as any).remove();
           }
