@@ -1,52 +1,43 @@
-# 🔗 Binder: The Deterministic Frontend-to-Backend Binding Engine
+# 🔗 Binder: A Helper for Frontend-to-Backend Binding
 
-**Binder** is a professional-grade CLI tool designed to eliminate the "manual plumbing" of connecting React frontends to backends. It uses AST-based surgical rewrites and a deterministic validation waterfall to replace mock data with real, type-safe API hooks. 
+**Binder** is a CLI utility designed to assist with the repetitive task of connecting React frontends to backends. It uses deterministic AST-based rules to replace mock data with real API hooks where safe, and provides detailed guidance for everything else.
 
-**No LLM. No Guessing. 100% Type-Safe.**
+**No LLM. No Guessing. Built for Developers.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/%3C%2F%3E-TypeScript-%23007acc.svg)](https://www.typescriptlang.org/)
 
 ## 🚀 Key Features
 
-- **80/20 Safe Binding**: Automatically converts "Safe Patterns" (direct assignments, simple maps, prop passing) and leaves professional `TODO(BINDER)` comments for complex cases.
-- **Hybrid Matching Engine**: Matches UI mocks to API hooks by combining name-based heuristics with shape-based semantic analysis (comparing data keys/types).
-- **Compliance-First Validation**: Uses your project's own `tsconfig.json` to verify every change before saving. If it doesn't compile, it doesn't commit.
-- **Autonomous Repair via MCP**: Leverages the Model Context Protocol (MCP) to fix mechanical issues like missing imports or syntax errors automatically.
-- **Mock Server Detection**: Proactively identifies MSW and MirageJS handlers, flagging them for removal once your components are bound.
-- **Persistent Memory**: A global cache remembers your manual binding choices across your entire monorepo, enabling auto-binding for recurring patterns.
+- **80/20 Migration Strategy**: Automatically converts simple patterns (direct assignments, basic maps) and leaves `TODO(BINDER)` comments for complex logic that requires a human eye.
+- **Ensemble Matching**: Uses a combination of name-based heuristics, data shape analysis, and project context to suggest the best API hook for your mock.
+- **Compliance Validation**: Runs your project's own TypeScript compiler (`ts-morph`) on changes in memory. If a rewrite breaks your build, Binder reverts it and flags it for review.
+- **Autonomous Mechanical Repair**: Uses the Model Context Protocol (MCP) to fix simple syntax or import issues automatically during the migration.
+- **Learning Cache**: Remembers your manual binding choices. The more you use it in a project, the more it can automate recurring patterns.
 
 ## 🛠️ Usage
 
-### 1. Initialize Configuration
-Run `binder init` to auto-detect your project structure, OpenAPI schema, and UI components:
-
+### 1. Initialize
+Auto-detect your project structure and schema:
 ```bash
 binder init
 ```
 
-### 2. Bind a Component
-Bind a component to your API in one command:
-
+### 2. Bind
+Run on a specific file to start the migration:
 ```bash
 binder bind src/pages/Dashboard.tsx
 ```
 
-### 3. Review & Refine
-For complex patterns, Binder leaves a clear manual review block:
-```typescript
-/* TODO(BINDER): Manual Review Required - conditional-logic
-Mock: MOCK_USER
-Suggested Hook: useGetUser
-*/
-```
+### 3. Review
+Search your codebase for `TODO(BINDER)` to find complex cases that need manual attention. Binder provides instructions and the original compiler error in the comment.
 
 ## 🧠 Why Binder?
 
-Binder is designed for developers who want speed without hallucinations.
-- **Compiler-Grade Reliability**: Every change is verified by a real instance of the TypeScript compiler.
-- **Human-in-the-Loop**: The tool handles the boring 80% and empowers the dev to handle the difficult 20% with clear instructions.
-- **Surgical Precision**: Preserves your original formatting, comments, and logic.
+Binder is an **assistant**, not a replacement for engineering judgment.
+- **Safe by Default**: Transactional rewrites mean your code is never left in a broken state.
+- **Transparent**: Every decision is logged, and complex patterns are always deferred to you.
+- **Surgical**: Preserves your formatting and logic by manipulating the AST directly.
 
 ## 📄 License
 MIT © 2026 Binder Team

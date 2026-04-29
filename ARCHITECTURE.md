@@ -1,29 +1,46 @@
-# 🏗️ Binder Architecture Deep Dive
+# 🏗️ Binder Architecture
 
-Binder is built on a **Deterministic Transformation Pipeline**. It eliminates hallucinations by replacing generative AI with AST-based analysis and mechanical compliance checks.
+Binder is a **Rule-Based Transformation Engine**. It aims to automate the "plumbing" of frontend-to-backend migrations by combining static analysis with a transactional safety loop.
 
 ## 🛠️ The Transformation Pipeline
 
-### 1. Discovery Phase (The Scout)
-- **Repo Mapping**: Crawls the workspace to find `openapi.json` and `tsconfig.json`.
-- **API Reflection**: Uses AST analysis to discover every available hook in your generated client, bypassing fragile regex.
-- **Mock Tracer**: Follows imports and scans local variables to identify mock data signatures.
+### 1. Discovery (The Scout)
+- **Repo Mapping**: Scans for `openapi.json`, `tsconfig.json`, and project-specific UI components.
+- **API Reflection**: Uses AST analysis to list available hooks in the generated client.
+- **Mock Tracer**: Identifies local and imported mock data variables using heuristic signatures.
 
-### 2. Mapping Phase (Hybrid Matcher)
-Binder links mocks to hooks via a dual-match waterfall:
-- **Heuristic Matcher**: Uses normalized fuzzy matching and CRUD pattern detection (e.g., `MOCK_USER` -> `useGetUser`).
-- **Semantic Shape Matcher**: Compares the data structure of mocks with API return types. If the keys align, confidence is boosted.
-- **Global Memory**: If a user manually confirms a match, it is cached globally and auto-applied in the future.
+### 2. Matching (Ensemble Engine)
+Binder pairs mocks to hooks using a weighted scoring waterfall:
+- **Heuristics (35%)**: Name-based fuzzy matching.
+- **Semantics (35%)**: Data shape comparison (keys and types).
+- **Context (30%)**: Folder structure, file names, and sibling imports.
+- **Learning**: Manually confirmed matches are cached globally and prioritized in future runs.
 
-### 3. Surgery Phase (Safe AST Rewriter)
-- **Safety Engine**: Detects "Safe Patterns" (direct variable assignment, simple maps). If a pattern is complex (conditionals, multiple transforms), it generates a `TODO(BINDER)` manual review block.
-- **AST Surgery**: Uses `ts-morph` for precise changes, preserving hook order and scope.
-- **UI Templates**: Injects user-defined loading/error components (e.g., `<Skeleton />`) rather than generic HTML.
+### 3. Surgery (AST Rewriter)
+- **Safety Check**: Compares mock usage against known "Safe Patterns."
+- **Transactional Rewrite**: Performs changes in memory first using `ts-morph`.
+- **Strategy Selection**: Chooses between standard swaps, `useMemo` wrapping, or `useState` migration based on usage.
 
-### 4. Validation Phase (Compliance Check)
-- **Virtual Compiler**: Every rewrite is verified against the user's actual `tsconfig.json`.
-- **Autonomous Repair**: If the rewrite has mechanical errors (missing imports), Binder calls an **MCP (Model Context Protocol)** server like `ts-repair` to fix it autonomously.
-- **The Revert Gate**: If the file doesn't compile after repair, the change is reverted and flagged for manual review.
+### 4. Validation (The Safety Gate)
+- **Compliance**: Changes are verified against the local `tsconfig.json`.
+- **Repair**: Simple errors (e.g., missing imports) are sent to an MCP server for autonomous fixing.
+- **Revert**: If the file does not compile after surgery and repair, Binder reverts the change and inserts a `TODO(BINDER)` with the compiler error.
+
+## 📊 Data Flow
+
+```mermaid
+graph TD
+    A[OpenAPI Schema] --> B[Hook Reflection]
+    C[Source Code] --> D[Mock Tracer]
+    B --> E[Ensemble Matcher]
+    D --> E
+    E --> F[In-Memory Surgery]
+    F --> G[Type Check]
+    G -- "Fixable Error" --> H[MCP Repair]
+    H --> G
+    G -- "Valid" --> I[Write to Disk]
+    G -- "Fatal Error" --> J[Revert & Add TODO]
+```
 
 ## 📊 Data Flow Graph
 
