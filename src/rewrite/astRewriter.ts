@@ -1,6 +1,8 @@
 ﻿import { Project, SyntaxKind, Node, SourceFile, ImportDeclaration, VariableDeclaration, FunctionDeclaration } from "ts-morph";
 import { relative, dirname, resolve } from "path";
 import { logger } from "../utils/logger.js";
+import { generateShapeRemapper } from "./shapeRemapper.js";
+import { rewriteEffectDependency } from "./effectRewriter.js";
 import type { BindingPlan, Binding } from "../common/types.js";
 
 export function rewriteFile(
@@ -151,7 +153,6 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
         // STRATEGY BRANCHING
         switch (binding.strategy) {
           case 'wrap-in-usememo':
-            // Wrap the data in useMemo if there are transforms
             hookCallLine = `const { data: ${hookVar}Raw, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();\n`;
             hookCallLine += `const ${hookVar} = useMemo(() => ${hookVar}Raw?.${binding.transformer || 'map(x => x)'}, [${hookVar}Raw]);`;
             ensureHookImports(sourceFile, ['useMemo'], 'react');
@@ -165,20 +166,39 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
             hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
             break;
 
-          case 'rewrite-conditional':
-            // Phase 8: Conditional Selection
+          case 'inject-both-hooks':
             hookCallLine = `const { data: ${hookVar}Result } = ${binding.hookName}();`;
-            // Note: The actual ternary rewrite happens via sourceFile.replaceWithText in a more complex pass
+            break;
+
+          case 'rewrite-effect-deps':
+            hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
+            // Find useEffect calls and rewrite them
+            body.getDescendantsOfKind(SyntaxKind.CallExpression)
+                .filter(c => c.getExpression().getText() === 'useEffect')
+                .forEach(effect => {
+                    const result = rewriteEffectDependency(effect, binding.mockName, hookVar);
+                    if (result) {
+                        effect.replaceWithText(`useEffect(() => {\n  ${result.replaceBody}\n}, [${result.replaceDeps.join(', ')}])`);
+                    }
+                });
             break;
 
           case 'wrap-in-effect-guard':
-            // Phase 8: Effect Dependency
             hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading } = ${binding.hookName}();`;
-            // Rewriter will find useEffect calls and add if(!data) return;
             break;
 
           default:
             hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();`;
+        }
+
+        // Shape Remapping Integration (Phase 13)
+        if (binding.transformer) {
+            const remapper = generateShapeRemapper(binding.mockName, {}, {}); // Shapes passed via plan in future
+            if (remapper) {
+                sourceFile.insertStatements(sourceFile.getImportDeclarations().length + 1, remapper.code);
+                hookCallLine = hookCallLine.replace(`data: ${hookVar}`, `data: ${hookVar}Raw`);
+                hookCallLine += `\nconst ${hookVar} = ${hookVar}Raw ? ${remapper.remapperName}(${hookVar}Raw) : undefined;`;
+            }
         }
         
         if (!body.getText().includes(`${binding.hookName}(`)) {

@@ -141,6 +141,30 @@ const EFFECT_DEPENDENCY: SafetyRule = {
   rewriteStrategy: 'wrap-in-effect-guard'
 };
 
+// Phase 11: Conditional Mock Selection
+const CONDITIONAL_MOCK_SELECTION: SafetyRule = {
+  name: 'conditional-mock-selection',
+  test: (mock, usage) => {
+    const parent = usage.node.getParent();
+    return parent?.getKind() === SyntaxKind.ConditionalExpression;
+  },
+  confidence: 0.75,
+  rewriteStrategy: 'inject-both-hooks'
+};
+
+// Phase 12: Mock-Driven useEffect Dependencies
+const EFFECT_DEPENDENCY_MOCK: SafetyRule = {
+  name: 'effect-dependency-mock',
+  test: (mock, usage) => {
+    const parent = usage.node.getParent();
+    return parent?.getKind() === SyntaxKind.ArrayLiteralExpression &&
+           parent.getParent()?.getKind() === SyntaxKind.CallExpression &&
+           (parent.getParent() as any).getExpression().getText() === 'useEffect';
+  },
+  confidence: 0.8,
+  rewriteStrategy: 'rewrite-effect-deps'
+};
+
 export function isSafePattern(mock: MockFinding, usage: UsageContext): SafetyRule | null {
   const rules = [
     DIRECT_ASSIGNMENT, 
@@ -152,7 +176,9 @@ export function isSafePattern(mock: MockFinding, usage: UsageContext): SafetyRul
     ALREADY_GUARDED,
     SAFE_SPREAD,
     CONDITIONAL_SELECTION,
-    EFFECT_DEPENDENCY
+    EFFECT_DEPENDENCY,
+    CONDITIONAL_MOCK_SELECTION,
+    EFFECT_DEPENDENCY_MOCK
   ];
   
   for (const rule of rules) {

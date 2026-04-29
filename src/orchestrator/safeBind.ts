@@ -13,6 +13,9 @@ import { generateCompatibilityTest } from '../test/compatibilityTest.js';
 import { getCachedBinding, saveBinding, recordPatternSuccess } from '../utils/cache.js';
 import { BinderMCP } from '../mcp/client.js';
 import { findAllUsages } from '../analysis/usageFinder.js';
+import { tracePropDrilling } from '../analysis/propTracer.js';
+import { LearningEngine, calculateConfidence } from '../learning/engine.js';
+import { generateShapeRemapper } from '../rewrite/shapeRemapper.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
 import type { BindingPlan } from '../common/types.js';
@@ -33,6 +36,7 @@ export async function safeBind(
   };
 
   const mcp = new BinderMCP();
+  const engine = new LearningEngine();
   await mcp.initialize(config);
 
   const tsConfigPath = findNearestTsConfig(dirname(filePath));
@@ -45,7 +49,6 @@ export async function safeBind(
   const sourceFile = project.addSourceFileAtPath(filePath);
   const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
   
-  // Track all planned bindings for this file to apply them together
   const filePlan: BindingPlan = {
       bindings: [],
       loadingTemplate: config.frontend.loadingTemplate,
@@ -53,7 +56,6 @@ export async function safeBind(
   };
 
   for (const mock of mocks) {
-    // ... (existing MSW/Mirage handler logic)
     if (mock.type === 'msw_handler' || mock.type === 'mirage_handler') {
         results.todos.push({
           mock,
@@ -66,7 +68,13 @@ Once the frontend components are bound to hooks, you should remove this handler 
         continue;
     }
 
-    // 1. Matching Logic
+    // 1. Trace Prop Drilling (Phase 10)
+    const drills = await tracePropDrilling(mock.name, sourceFile, project);
+    if (drills.length > 0) {
+        logger.info(`  [Prop Drill] Trace found: ${mock.name} passed to ${drills[0].componentName}`);
+    }
+
+    // 2. Matching Logic (Ensemble)
     const cached = getCachedBinding(filePath, mock.name);
     let hookName = (cached as any)?.hookName;
     let confidence = cached ? 1.0 : 0;
@@ -88,7 +96,16 @@ Once the frontend components are bound to hooks, you should remove this handler 
         const sorted = Object.entries(scores).filter(([_, s]) => s > 0).sort((a, b) => b[1] - a[1]);
         if (sorted.length > 0 && sorted[0][1] >= 0.6) {
             hookName = sorted[0][0];
-            confidence = sorted[0][1];
+            const ensembleScore = sorted[0][1];
+            
+            // Learning Engine Boost (Phase 9)
+            const prediction = engine.predict({
+                mockName: mock.name,
+                structuralSignature: generateSignature(sourceFile.getDescendantsOfKind(SyntaxKind.Identifier).find(id => id.getText() === mock.name)!)
+            } as any);
+            
+            confidence = calculateConfidence(ensembleScore, prediction?.confidence || 0, 0);
+            
             if (sorted[1] && (confidence - sorted[1][1]) < 0.15) ambiguous = true;
         }
     }
@@ -98,8 +115,18 @@ Once the frontend components are bound to hooks, you should remove this handler 
       continue;
     }
 
-    // 2. Safety Check
+    // 3. Safety Check
     const rewriteResult = safeRewrite(mock, hookName, sourceFile);
+    
+    // 4. Shape Remapping (Phase 13)
+    let transformer = undefined;
+    if (mock.resolvedContent && mock.inferredShape) {
+        const remapper = generateShapeRemapper(mock.name, mock.inferredShape, {}); // Hook shape placeholder
+        if (remapper) {
+            transformer = remapper.remapperName;
+        }
+    }
+
     if (rewriteResult.type === 'auto' && !ambiguous) {
         filePlan.bindings.push({
             mockName: mock.name,
@@ -107,26 +134,22 @@ Once the frontend components are bound to hooks, you should remove this handler 
             confidence: confidence,
             actionType: 'READ',
             strategy: rewriteResult.strategy,
+            transformer: transformer,
             loadingStrategy: config.frontend.loadingTemplate ? 'early-return-skeleton' : 'none',
             errorStrategy: config.frontend.errorTemplate ? 'early-return-error' : 'none'
         });
     } else {
-        // Prepare TODO
         const todoComment = rewriteResult.todoComment || `/* TODO(BINDER): Ambiguous match or complex pattern. Suggestion: ${hookName} */`;
         results.todos.push({ mock, hook: hookName, reason: rewriteResult.reason || 'ambiguous', todoComment });
         results.todo++;
     }
   }
 
-  // 3. TRANSACTIONAL REWRITE
+  // 5. TRANSACTIONAL REWRITE
   if (filePlan.bindings.length > 0) {
       try {
           let rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
-          
-          // Autonomous Repair
           rewritten = await mcp.autoFix(filePath, rewritten);
-
-          // In-Memory Validation
           const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
           
           if (check.passed) {
@@ -134,28 +157,19 @@ Once the frontend components are bound to hooks, you should remove this handler 
               results.auto = filePlan.bindings.length;
               filePlan.bindings.forEach(b => {
                   saveBinding(filePath, b.mockName, { hookName: b.hookName });
-                  
-                  // RECORD PATTERN SUCCESS (Learning Mode)
                   const usages = findAllUsages(b.mockName, sourceFile);
                   usages.forEach(u => recordPatternSuccess(u.structuralSignature, b.strategy || 'default'));
-
-                  if (options.generateTests) {
-                      generateCompatibilityTest(filePath, b, config.frontend.generatedDir);
-                  }
+                  if (options.generateTests) generateCompatibilityTest(filePath, b, config.frontend.generatedDir);
               });
           } else {
-              logger.error(`❌ Transactional rewrite failed type check. Reverting to TODOs.`);
-              // Fallback: Add errors as TODOs for each mock in the plan
               for (const binding of filePlan.bindings) {
-                  const errorMsg = check.errors.find(e => e.includes(binding.mockName)) || check.errors[0];
                   results.todos.push({
                       mock: mocks.find(m => m.name === binding.mockName)!,
                       hook: binding.hookName,
                       reason: 'type-check-failure',
-                      todoComment: `/* TODO(BINDER): Auto-conversion failed. Error: ${errorMsg} */`
+                      todoComment: `/* TODO(BINDER): Auto-conversion failed. Manual review required. */`
                   });
               }
-              results.auto = 0;
               results.todo += filePlan.bindings.length;
           }
       } catch (e: any) {
@@ -163,9 +177,7 @@ Once the frontend components are bound to hooks, you should remove this handler 
       }
   }
 
-  // Apply TODOs to the final code if we have a successful rewrite, or to the original code
   if (results.todos.length > 0) {
-      // Use original source or partially rewritten one
       const targetFile = results.rewrittenCode ? project.createSourceFile(filePath + '.tmp', results.rewrittenCode, { overwrite: true }) : sourceFile;
       for (const t of results.todos) {
           await insertTodoComment(targetFile, t.mock, t.todoComment);
@@ -173,30 +185,6 @@ Once the frontend components are bound to hooks, you should remove this handler 
       results.rewrittenCode = targetFile.getFullText();
   }
 
-  return results;
-}
-        
-      case 'todo':
-        // Add TODO comment, leave mock untouched
-        await insertTodoComment(sourceFile, mock, rewriteResult.todoComment!);
-        sourceFile.saveSync();
-        results.todo++;
-        results.todos.push({
-          mock,
-          hook: hookName,
-          reason: rewriteResult.reason || 'complex-pattern',
-          todoComment: rewriteResult.todoComment!
-        });
-        logger.warn(`⚠️  TODO added: ${mock.name} (${rewriteResult.reason})`);
-        break;
-        
-      case 'skip':
-        results.skip++;
-        logger.debug(`Skipped: ${mock.name} (${rewriteResult.reason})`);
-        break;
-    }
-  }
-  
   return results;
 }
 
