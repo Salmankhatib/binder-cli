@@ -7,6 +7,7 @@ import type { MockFinding } from '../scan/mockScanner.js';
 export interface RewriteResult {
   type: 'auto' | 'todo' | 'skip';
   confidence: number;
+  strategy?: string;
   reason?: string;
   todoComment?: string;
 }
@@ -31,6 +32,7 @@ export function safeRewrite(
   // Check if ALL usages are safe
   let lowestConfidence = 1;
   let unsafeUsages: UsageContext[] = [];
+  let strategies = new Set<string>();
   
   for (const usage of usages) {
     const safePattern = isSafePattern(mock, usage);
@@ -40,6 +42,7 @@ export function safeRewrite(
       lowestConfidence = 0;
     } else {
       lowestConfidence = Math.min(lowestConfidence, safePattern.confidence);
+      strategies.add(safePattern.rewriteStrategy);
     }
   }
   
@@ -57,7 +60,8 @@ export function safeRewrite(
   // ALL usages are safe - auto-convert
   return {
     type: 'auto',
-    confidence: lowestConfidence
+    confidence: lowestConfidence,
+    strategy: strategies.size === 1 ? Array.from(strategies)[0] : 'default'
   };
 }
 

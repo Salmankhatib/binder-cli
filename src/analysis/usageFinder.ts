@@ -142,3 +142,58 @@ export function hasSideEffects(usage: UsageContext): boolean {
   }
   return false;
 }
+
+export function findComponentBody(node: Node): Node | null {
+  let current: Node | undefined = node;
+  while (current) {
+    if (Node.isBlock(current)) {
+      const parent = current.getParent();
+      if (Node.isArrowFunction(parent) || Node.isFunctionExpression(parent) || Node.isFunctionDeclaration(parent)) {
+        return current;
+      }
+    }
+    current = current.getParent();
+  }
+  return null;
+}
+
+export function hasComputedProperties(node: Node): boolean {
+  if (Node.isSpreadAssignment(node)) {
+    const parent = node.getParent();
+    if (Node.isObjectLiteralExpression(parent)) {
+      return parent.getProperties().some(p => Node.isComputedPropertyName(p));
+    }
+  }
+  return false;
+}
+
+export function hasSetterUsage(mockName: string, sourceFile: any): boolean {
+  // Find useState call where mockName is used as init
+  const useStateCalls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)
+    .filter((call: any) => {
+      const expr = call.getExpression();
+      return expr.getText() === 'useState' && 
+             call.getArguments().some((arg: any) => arg.getText() === mockName);
+    });
+
+  for (const call of useStateCalls) {
+    const parent = call.getParent();
+    if (Node.isVariableDeclaration(parent)) {
+      const nameNode = parent.getNameNode();
+      if (Node.isArrayBindingPattern(nameNode)) {
+        const elements = nameNode.getElements();
+        if (elements.length >= 2) {
+          const setterNode = elements[1];
+          if (Node.isBindingElement(setterNode)) {
+            const setterName = setterNode.getName();
+            // Check if this setter is used anywhere else in the file
+            const usages = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
+              .filter((id: Identifier) => id.getText() === setterName);
+            if (usages.length > 1) return true; // Used more than once (declaration + usage)
+          }
+        }
+      }
+    }
+  }
+  return false;
+}

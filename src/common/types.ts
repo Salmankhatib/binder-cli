@@ -5,6 +5,7 @@ export interface Binding {
   hookName: string;
   confidence: number;
   actionType: 'CREATE' | 'UPDATE' | 'DELETE' | 'READ';
+  strategy?: string;
   transformer?: string;
   loadingStrategy?: 'early-return-skeleton' | 'suspense' | 'none';
   errorStrategy?: 'early-return-error' | 'none';

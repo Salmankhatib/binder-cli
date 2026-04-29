@@ -146,24 +146,52 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
         const hookDecl = sourceFile.getImportDeclaration(i => i.getModuleSpecifierValue().includes('api'))
           ?.getModuleSpecifier().getSymbol()?.getDeclarations()[0]; // Simplified lookup
           
-        const hookCall = `${binding.hookName}()`;
+        let hookCallLine = "";
         
-        // Destructure based on strategy
-        let hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${hookCall};`;
+        // STRATEGY BRANCHING
+        switch (binding.strategy) {
+          case 'wrap-in-usememo':
+            // Wrap the data in useMemo if there are transforms
+            hookCallLine = `const { data: ${hookVar}Raw, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();\n`;
+            hookCallLine += `const ${hookVar} = useMemo(() => ${hookVar}Raw?.${binding.transformer || 'map(x => x)'}, [${hookVar}Raw]);`;
+            ensureHookImports(sourceFile, ['useMemo'], 'react');
+            break;
+            
+          case 'migrate-to-usequery':
+            // Replacing useState with useQuery
+            hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();`;
+            // Note: We already check for no setter usage in the safety rule
+            break;
+            
+          case 'swap-data-source-only':
+            // Don't inject guards, just swap
+            hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
+            break;
+
+          case 'ensure-superset':
+            // Placeholder for shape check logic
+            hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
+            break;
+
+          default:
+            hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();`;
+        }
         
         if (!body.getText().includes(`${binding.hookName}(`)) {
           insertAfterLastHook(body, hookCallLine);
           
-          // Apply Loading Strategy
-          if (binding.loadingStrategy === 'early-return-skeleton') {
-              const template = plan.loadingTemplate || `<div>Loading ${hookVar}...</div>`;
-              insertStatementAfter(body, hookCallLine, `if (${hookVar}Loading) return ${template};`);
-          }
+          if (binding.strategy !== 'swap-data-source-only' && binding.strategy !== 'ensure-superset') {
+            // Apply Loading Strategy
+            if (binding.loadingStrategy === 'early-return-skeleton') {
+                const template = plan.loadingTemplate || `<div>Loading ${hookVar}...</div>`;
+                insertStatementAfter(body, hookCallLine, `if (${hookVar}Loading) return ${template};`);
+            }
 
-          // Apply Error Strategy
-          if (binding.errorStrategy === 'early-return-error') {
-              const template = plan.errorTemplate || `<div>Error loading ${hookVar}</div>`;
-              insertStatementAfter(body, hookCallLine, `if (${hookVar}Error) return ${template};`);
+            // Apply Error Strategy
+            if (binding.errorStrategy === 'early-return-error') {
+                const template = plan.errorTemplate || `<div>Error loading ${hookVar}</div>`;
+                insertStatementAfter(body, hookCallLine, `if (${hookVar}Error) return ${template};`);
+            }
           }
         }
       }

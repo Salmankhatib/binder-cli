@@ -94,6 +94,7 @@ Once the frontend components are bound to hooks, you should remove this handler 
             hookName: hookName,
             confidence: confidence,
             actionType: 'READ',
+            strategy: rewriteResult.strategy,
             loadingStrategy: config.frontend.loadingTemplate ? 'early-return-skeleton' : 'none',
             errorStrategy: config.frontend.errorTemplate ? 'early-return-error' : 'none'
           }],
