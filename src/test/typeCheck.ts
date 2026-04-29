@@ -63,7 +63,15 @@ export function runTypeCheck(filePath: string, code: string, generatedDir?: stri
 
   const filteredDiags = diagObjects.filter(d => {
     const text = typeof d.getMessageText() === 'string' ? d.getMessageText() : (d.getMessageText() as any).getMessageText();
-    return d.getSourceFile()?.getFilePath()?.includes('.tmp.tsx') && !ignoreMessages.some(ignore => (text as string).includes(ignore));
+    // Specifically target the file we just rewrote and exclude generic noise
+    return d.getSourceFile()?.getFilePath()?.includes('.tmp.tsx') && 
+           !ignoreMessages.some(ignore => (text as string).includes(ignore));
+  });
+
+  // ADVICE: Enhance JSX prop detection
+  const jsxErrors = filteredDiags.filter(d => {
+      const text = typeof d.getMessageText() === 'string' ? d.getMessageText() : (d.getMessageText() as any).getMessageText();
+      return (text as string).includes('property') || (text as string).includes('JSX');
   });
 
   const diagnostics: Diagnostic[] = filteredDiags.map(d => ({

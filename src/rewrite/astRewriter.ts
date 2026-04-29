@@ -158,19 +158,23 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
             break;
             
           case 'migrate-to-usequery':
-            // Replacing useState with useQuery
             hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();`;
-            // Note: We already check for no setter usage in the safety rule
             break;
             
           case 'swap-data-source-only':
-            // Don't inject guards, just swap
             hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
             break;
 
-          case 'ensure-superset':
-            // Placeholder for shape check logic
-            hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
+          case 'rewrite-conditional':
+            // Phase 8: Conditional Selection
+            hookCallLine = `const { data: ${hookVar}Result } = ${binding.hookName}();`;
+            // Note: The actual ternary rewrite happens via sourceFile.replaceWithText in a more complex pass
+            break;
+
+          case 'wrap-in-effect-guard':
+            // Phase 8: Effect Dependency
+            hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading } = ${binding.hookName}();`;
+            // Rewriter will find useEffect calls and add if(!data) return;
             break;
 
           default:

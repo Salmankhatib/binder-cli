@@ -4,12 +4,26 @@ export interface Config {
     schemaPath: string;
     /** Optional base URL for API requests */
     url?: string;
+    /** Schema format */
+    schemaFormat?: 'yaml' | 'json' | 'url';
   };
   frontend: {
     /** Where Orval outputs generated code */
     generatedDir: string;
+    loadingTemplate?: string;
+    errorTemplate?: string;
+    existingHooksDir?: string;
+    componentsDir?: string;
+    pagesDir?: string;
   };
-  orval: {
+  mockDetection?: {
+    importPatterns?: string[];      // ["**/*.mock.ts", "**/fixtures/**"]
+    variablePrefixes?: string[];    // ["MOCK_", "DEMO_", "SAMPLE_"]
+    variableSuffixes?: string[];    // ["_DATA", "_MOCK"]
+    factoryFunctions?: string[];    // ["createUser", "generateOrder"]
+    ignorePatterns?: string[];      // ["**/*.test.ts"]
+  };
+  orval?: {
     /** Which query client to generate */
     client: 'react-query' | 'swr' | 'vue-query';
     /** Base URL for axios instance */
@@ -31,7 +45,9 @@ export interface Config {
     name: string;
     command: string;
     args: string[];
+    env?: Record<string, string>;
   }>;
+  mcpFallback?: 'skip' | 'basic-todo' | 'local-llm';
 }
 
 export type DeepPartial<T> = {

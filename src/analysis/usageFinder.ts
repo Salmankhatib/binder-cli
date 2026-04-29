@@ -143,6 +143,21 @@ export function hasSideEffects(usage: UsageContext): boolean {
   return false;
 }
 
+export function isEffectDependency(id: Identifier): boolean {
+  const parent = id.getParent();
+  if (Node.isArrayLiteralExpression(parent)) {
+    const grandParent = parent.getParent();
+    return Node.isCallExpression(grandParent) && 
+           grandParent.getExpression().getText() === 'useEffect';
+  }
+  return false;
+}
+
+export function isConditionalOperand(id: Identifier): boolean {
+  const parent = id.getParent();
+  return Node.isConditionalExpression(parent);
+}
+
 export function findComponentBody(node: Node): Node | null {
   let current: Node | undefined = node;
   while (current) {

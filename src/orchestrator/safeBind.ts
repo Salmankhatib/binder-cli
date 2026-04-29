@@ -9,6 +9,7 @@ import { contextualMatch } from '../match/contextualMatcher.js';
 import { rewriteFile } from '../rewrite/astRewriter.js';
 import { logger } from '../utils/logger.js';
 import { runTypeCheck } from '../test/typeCheck.js';
+import { generateCompatibilityTest } from '../test/compatibilityTest.js';
 import { getCachedBinding, saveBinding } from '../utils/cache.js';
 import { BinderMCP } from '../mcp/client.js';
 import type { MockFinding } from '../scan/mockScanner.js';
@@ -19,17 +20,19 @@ export async function safeBind(
   mocks: MockFinding[], 
   filePath: string, 
   config: Config,
-  hookNames: string[]
+  hookNames: string[],
+  options: { dryRun?: boolean, interactive?: boolean, generateTests?: boolean } = {}
 ) {
   const results = {
     auto: 0,
     todo: 0,
     skip: 0,
+    rewrittenCode: null as string | null,
     todos: [] as Array<{mock: MockFinding, hook: string, reason: string, todoComment: string}>
   };
 
   const mcp = new BinderMCP();
-  await mcp.initialize();
+  await mcp.initialize(config);
 
   const tsConfigPath = findNearestTsConfig(dirname(filePath));
   const project = new Project({
@@ -40,29 +43,35 @@ export async function safeBind(
   
   const sourceFile = project.addSourceFileAtPath(filePath);
   const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
-  const originalCode = sourceFile.getFullText();
   
+  // Track all planned bindings for this file to apply them together
+  const filePlan: BindingPlan = {
+      bindings: [],
+      loadingTemplate: config.frontend.loadingTemplate,
+      errorTemplate: config.frontend.errorTemplate
+  };
+
   for (const mock of mocks) {
+    // ... (existing MSW/Mirage handler logic)
     if (mock.type === 'msw_handler' || mock.type === 'mirage_handler') {
-      results.todos.push({
-        mock,
-        hook: 'N/A',
-        reason: 'Mock Server Handler detected',
-        todoComment: `/* TODO(BINDER): Detects ${mock.type.replace('_', ' ').toUpperCase()}. 
+        results.todos.push({
+          mock,
+          hook: 'N/A',
+          reason: 'Mock Server Handler detected',
+          todoComment: `/* TODO(BINDER): Detects ${mock.type.replace('_', ' ').toUpperCase()}. 
 Once the frontend components are bound to hooks, you should remove this handler from your mock server setup. */`
-      });
-      results.todo++;
-      continue;
+        });
+        results.todo++;
+        continue;
     }
 
-    // 1. Check Cache First (Global Suggestion)
+    // 1. Matching Logic
     const cached = getCachedBinding(filePath, mock.name);
     let hookName = (cached as any)?.hookName;
     let confidence = cached ? 1.0 : 0;
     let ambiguous = false;
 
     if (!hookName) {
-        // ENSEMBLE MATCHING
         const hMatches = heuristicMatch([mock], hookNames, filePath);
         const sMatches = semanticMatch([mock], hookNames.map(n => ({name: n, method: 'GET', path: '/', responseType: 'any'})), apiContent);
         const cMatches = contextualMatch(mock, filePath, sourceFile, hookNames);
@@ -72,52 +81,26 @@ Once the frontend components are bound to hooks, you should remove this handler 
             const h = hMatches.find(m => m?.hookName === name);
             const s = sMatches.find(m => m?.hookName === name);
             const c = cMatches.find(m => m?.hookName === name);
-
-            scores[name] = 
-                (h?.confidence || 0) * 0.35 +
-                (s?.confidence || 0) * 0.35 +
-                (c?.confidence || 0) * 0.30;
+            scores[name] = (h?.confidence || 0) * 0.35 + (s?.confidence || 0) * 0.35 + (c?.confidence || 0) * 0.30;
         }
 
-        const sorted = Object.entries(scores)
-            .filter(([_, score]) => score > 0)
-            .sort((a, b) => b[1] - a[1]);
-
-        if (sorted.length > 0) {
-            const [bestName, bestScore] = sorted[0];
-            
-            if (bestScore >= 0.6) {
-                hookName = bestName;
-                confidence = bestScore;
-                
-                // Ambiguity check: If second-best is close, flag for review
-                const secondBest = sorted[1];
-                if (secondBest && (bestScore - secondBest[1]) < 0.15) {
-                    ambiguous = true;
-                }
-            }
+        const sorted = Object.entries(scores).filter(([_, s]) => s > 0).sort((a, b) => b[1] - a[1]);
+        if (sorted.length > 0 && sorted[0][1] >= 0.6) {
+            hookName = sorted[0][0];
+            confidence = sorted[0][1];
+            if (sorted[1] && (confidence - sorted[1][1]) < 0.15) ambiguous = true;
         }
     }
-    
+
     if (!hookName || (confidence < 0.5 && !ambiguous)) {
       results.skip++;
-      logger.debug(`Skipped: ${mock.name} (No confident hook match)`);
       continue;
     }
-    
-    // Check if safe to auto-convert
-    const rewriteResult = safeRewrite(mock, hookName, sourceFile);
 
-    // If ambiguous or low confidence, downgrade to TODO
-    let finalType = rewriteResult.type;
-    if (ambiguous && finalType === 'auto') {
-        finalType = 'todo';
-    }
-    
-    switch(finalType) {
-      case 'auto':
-        const plan: BindingPlan = {
-          bindings: [{
+    // 2. Safety Check
+    const rewriteResult = safeRewrite(mock, hookName, sourceFile);
+    if (rewriteResult.type === 'auto' && !ambiguous) {
+        filePlan.bindings.push({
             mockName: mock.name,
             hookName: hookName,
             confidence: confidence,
@@ -125,43 +108,67 @@ Once the frontend components are bound to hooks, you should remove this handler 
             strategy: rewriteResult.strategy,
             loadingStrategy: config.frontend.loadingTemplate ? 'early-return-skeleton' : 'none',
             errorStrategy: config.frontend.errorTemplate ? 'early-return-error' : 'none'
-          }],
-          loadingTemplate: config.frontend.loadingTemplate,
-          errorTemplate: config.frontend.errorTemplate
-        };
-        
-        try {
-          let rewritten = rewriteFile(filePath, plan, config.frontend.generatedDir);
+        });
+    } else {
+        // Prepare TODO
+        const todoComment = rewriteResult.todoComment || `/* TODO(BINDER): Ambiguous match or complex pattern. Suggestion: ${hookName} */`;
+        results.todos.push({ mock, hook: hookName, reason: rewriteResult.reason || 'ambiguous', todoComment });
+        results.todo++;
+    }
+  }
+
+  // 3. TRANSACTIONAL REWRITE
+  if (filePlan.bindings.length > 0) {
+      try {
+          let rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
           
-          // --- MCP AUTONOMOUS REPAIR ---
+          // Autonomous Repair
           rewritten = await mcp.autoFix(filePath, rewritten);
 
-          // --- COMPLIANCE CHECK ---
-          logger.system(`  [Compliance] Validating rewrite for ${mock.name}...`);
+          // In-Memory Validation
           const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
           
           if (check.passed) {
-            writeFileSync(filePath, rewritten);
-            saveBinding(filePath, mock.name, { hookName });
-            results.auto++;
-            logger.success(`✓ Auto-converted: ${mock.name} → ${hookName}`);
+              results.rewrittenCode = rewritten;
+              results.auto = filePlan.bindings.length;
+              filePlan.bindings.forEach(b => {
+                  saveBinding(filePath, b.mockName, { hookName: b.hookName });
+                  if (options.generateTests) {
+                      generateCompatibilityTest(filePath, b, config.frontend.generatedDir);
+                  }
+              });
           } else {
-            logger.error(`❌ Rewrite for ${mock.name} failed type check. Reverting.`);
-            check.errors.forEach(err => logger.system(`    - ${err}`));
-            
-            // Add as a TODO instead of breaking the file
-            const todoComment = `/* TODO(BINDER): Auto-conversion failed type check. 
-Error: ${check.errors[0]} 
-Manual review required. */`;
-            await insertTodoComment(sourceFile, mock, todoComment);
-            sourceFile.saveSync();
-            results.todo++;
+              logger.error(`❌ Transactional rewrite failed type check. Reverting to TODOs.`);
+              // Fallback: Add errors as TODOs for each mock in the plan
+              for (const binding of filePlan.bindings) {
+                  const errorMsg = check.errors.find(e => e.includes(binding.mockName)) || check.errors[0];
+                  results.todos.push({
+                      mock: mocks.find(m => m.name === binding.mockName)!,
+                      hook: binding.hookName,
+                      reason: 'type-check-failure',
+                      todoComment: `/* TODO(BINDER): Auto-conversion failed. Error: ${errorMsg} */`
+                  });
+              }
+              results.auto = 0;
+              results.todo += filePlan.bindings.length;
           }
-        } catch (e: any) {
-          logger.error(`Failed to auto-convert ${mock.name}: ${e.message}`);
-          results.skip++;
-        }
-        break;
+      } catch (e: any) {
+          logger.error(`Surgery failed: ${e.message}`);
+      }
+  }
+
+  // Apply TODOs to the final code if we have a successful rewrite, or to the original code
+  if (results.todos.length > 0) {
+      // Use original source or partially rewritten one
+      const targetFile = results.rewrittenCode ? project.createSourceFile(filePath + '.tmp', results.rewrittenCode, { overwrite: true }) : sourceFile;
+      for (const t of results.todos) {
+          await insertTodoComment(targetFile, t.mock, t.todoComment);
+      }
+      results.rewrittenCode = targetFile.getFullText();
+  }
+
+  return results;
+}
         
       case 'todo':
         // Add TODO comment, leave mock untouched

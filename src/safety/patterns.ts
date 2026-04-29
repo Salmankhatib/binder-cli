@@ -12,7 +12,9 @@ import {
   hasSideEffects,
   findComponentBody,
   hasComputedProperties,
-  hasSetterUsage
+  hasSetterUsage,
+  isEffectDependency,
+  isConditionalOperand
 } from '../analysis/usageFinder.js';
 
 export interface SafetyRule {
@@ -123,6 +125,22 @@ const SAFE_SPREAD: SafetyRule = {
   rewriteStrategy: 'ensure-superset'
 };
 
+// NEW: Pattern 9: Conditional Selection (Phase 8)
+const CONDITIONAL_SELECTION: SafetyRule = {
+  name: 'conditional-selection',
+  test: (mock, usage) => isConditionalOperand(usage.node),
+  confidence: 0.6,
+  rewriteStrategy: 'rewrite-conditional'
+};
+
+// NEW: Pattern 10: Effect Dependency (Phase 8)
+const EFFECT_DEPENDENCY: SafetyRule = {
+  name: 'effect-dependency',
+  test: (mock, usage) => isEffectDependency(usage.node),
+  confidence: 0.7,
+  rewriteStrategy: 'wrap-in-effect-guard'
+};
+
 export function isSafePattern(mock: MockFinding, usage: UsageContext): SafetyRule | null {
   const rules = [
     DIRECT_ASSIGNMENT, 
@@ -132,7 +150,9 @@ export function isSafePattern(mock: MockFinding, usage: UsageContext): SafetyRul
     DETERMINISTIC_TRANSFORMS,
     USE_STATE_MOCK,
     ALREADY_GUARDED,
-    SAFE_SPREAD
+    SAFE_SPREAD,
+    CONDITIONAL_SELECTION,
+    EFFECT_DEPENDENCY
   ];
   
   for (const rule of rules) {

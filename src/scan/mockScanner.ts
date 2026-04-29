@@ -1,9 +1,10 @@
-import { Project, SyntaxKind, ArrayLiteralExpression, Node } from 'ts-morph';
+import { Project, SyntaxKind, ArrayLiteralExpression, Node, SourceFile } from 'ts-morph';
 import { logger } from '../utils/logger.js';
 import { RepoTools } from '../utils/repoTools.js';
+import type { Config } from '../config/types.js';
 
 export interface MockFinding {
-  type: 'import_mock' | 'inline_array' | 'variable_mock' | 'jsx_prop_mock' | 'action_mock' | 'msw_handler' | 'mirage_handler';
+  type: 'import_mock' | 'inline_array' | 'variable_mock' | 'jsx_prop_mock' | 'action_mock' | 'msw_handler' | 'mirage_handler' | 'factory_mock';
   name: string;
   source?: string;
   line: number;
@@ -20,7 +21,7 @@ const ACTION_PATTERNS = /handle(Add|Create|Delete|Remove|Update|Edit|Save)/i;
 const MSW_PATTERNS = /(rest|http)\.(get|post|put|delete|patch)\(/;
 const MIRAGE_PATTERNS = /this\.(get|post|put|delete|patch)\(/;
 
-export function scanMocks(filePath: string): MockFinding[] {
+export function scanMocks(filePath: string, config?: Config): MockFinding[] {
   logger.startSpinner('Scanning target for mock signatures and actions...');
   
   const project = new Project({
@@ -33,14 +34,26 @@ export function scanMocks(filePath: string): MockFinding[] {
   const findings: MockFinding[] = [];
   const mockVariables = new Set<string>();
 
+  // Use custom detection rules from config if available
+  const customPrefixes = config?.mockDetection?.variablePrefixes || [];
+  const customSuffixes = config?.mockDetection?.variableSuffixes || [];
+  
+  const isMockName = (name: string) => {
+      if (MOCK_PREFIX.test(name) || DATA_SUFFIX.test(name)) return true;
+      if (customPrefixes.some(p => name.startsWith(p))) return true;
+      if (customSuffixes.some(s => name.endsWith(s))) return true;
+      return false;
+  };
+
   // 1. Detect Imports (The Mock Tracer)
   sourceFile.getImportDeclarations().forEach(imp => {
     const specifier = imp.getModuleSpecifierValue();
+    const customPatterns = config?.mockDetection?.importPatterns || [];
     
     imp.getNamedImports().forEach(n => {
       const name = n.getName();
       // If it's from a mock file, OR if the variable itself looks like a mock
-      if (MOCK_PATTERNS.test(specifier) || MOCK_PREFIX.test(name)) {
+      if (MOCK_PATTERNS.test(specifier) || isMockName(name) || customPatterns.some(p => specifier.includes(p))) {
         logger.system(`  [Tracer] Following mock import: ${name} from ${specifier}`);
         const resolved = repo.resolveMockData(filePath, name);
         
@@ -63,7 +76,7 @@ export function scanMocks(filePath: string): MockFinding[] {
     const init = decl.getInitializer();
     if (mockVariables.has(name)) return;
 
-    if (MOCK_PREFIX.test(name) || DATA_SUFFIX.test(name) || name === "data" || name === "items") {
+    if (isMockName(name) || name === "data" || name === "items") {
       if (init?.isKind(SyntaxKind.ArrayLiteralExpression)) {
         findings.push({ 
             type: 'inline_array', 
@@ -87,6 +100,8 @@ export function scanMocks(filePath: string): MockFinding[] {
   });
 
   // 3. Detect Actions (Event Handlers)
+  const factoryNames = config?.mockDetection?.factoryFunctions || [];
+
   sourceFile.forEachDescendant(node => {
     if (Node.isFunctionDeclaration(node) || Node.isVariableDeclaration(node)) {
       const name = Node.isFunctionDeclaration(node) ? node.getName() : node.getName();
@@ -102,10 +117,22 @@ export function scanMocks(filePath: string): MockFinding[] {
       }
     }
     
-    // 4. Detect MSW/Mirage Handlers
+    // 4. Detect MSW/Mirage Handlers & Factories
     if (Node.isCallExpression(node)) {
       const text = node.getText();
-      if (MSW_PATTERNS.test(text)) {
+      const exprText = node.getExpression().getText();
+
+      // Factories
+      if (factoryNames.includes(exprText)) {
+          findings.push({
+              type: 'factory_mock',
+              name: exprText,
+              line: node.getStartLineNumber(),
+              snippet: text.slice(0, 100)
+          });
+      }
+
+      else if (MSW_PATTERNS.test(text)) {
         findings.push({
           type: 'msw_handler',
           name: 'MSW Handler',

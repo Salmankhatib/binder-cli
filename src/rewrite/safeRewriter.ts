@@ -72,45 +72,28 @@ function generateTodoComment(
   unsafeUsages: UsageContext[]
 ): string {
   const unsafeLines = unsafeUsages.map(u => u.node.getStartLineNumber()).join(', ');
-  const reason = getUnsafeReason(mock, unsafeUsages[0]);
   
   return `
-/*
-${'='.repeat(70)}
-TODO(BINDER): Manual Review Required - ${reason}
-${'='.repeat(70)}
-
+/* 
+======================================================================
+TODO(BINDER): Manual Review Required
+======================================================================
 Mock: ${mock.name}
 Suggested Hook: ${hookName}
 Confidence: LOW
 
 Unsafe usages found at lines: ${unsafeLines}
 
-Why this needs manual review:
-${getDetailedReason(reason, mock)}
+Manual conversion needed because this pattern involves complex logic 
+(conditionals, multiple transforms, or side effects) that cannot be 
+safely automated.
 
 How to fix:
-1. Find where ${mock.name} is used (search for it)
-2. Replace with: const { data: ${mock.name.toLowerCase()} } = ${hookName}()
-3. Update the usage patterns to work with async data
-4. Add loading/error states if needed
-
-Original mock snippet:
-${mock.snippet.substring(0, 200)}...
-${'='.repeat(70)}
-*/
-  `.trim();
+1. Search for usages of ${mock.name}
+2. Replace with: const { data } = ${hookName}()
+3. Handle async states (loading/error)
+======================================================================
+*/`.trim();
 }
 
-function getDetailedReason(reason: string, mock: MockFinding): string {
-  switch(reason) {
-    case 'conditional-logic':
-      return \`\${mock.name} is used inside if/else or ternary statements. The mock returns instantly, but the real API is async. Need to restructure conditional logic.\`;
-    case 'multiple-transformations':
-      return \`\${mock.name} has .filter().map().reduce() chains. These need to be applied AFTER the API data loads.\`;
-    case 'nested-property-access':
-      return \`\${mock.name} has nested access like .user.profile.name. Need to check if API returns same nesting structure.\`;
-    default:
-      return \`Complex pattern detected. Manual conversion needed.\`;
-  }
-}
+

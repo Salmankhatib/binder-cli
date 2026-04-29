@@ -47,9 +47,27 @@ export async function discoveryPhase(config: Config): Promise<ProjectMap> {
 
   logger.stopSpinner(true, "Discovery complete. Repository map established.");
 
-  return {
-    tree: files,
-    packageJson,
-    mainDependencies: mainDeps
-  };
+export function detectMonorepo(): { type: string, packages: string[] } | null {
+  if (existsSync('pnpm-workspace.yaml')) {
+    // Simplified pnpm discovery
+    return { type: 'pnpm', packages: [] };
+  }
+  
+  const pkgPath = resolve(process.cwd(), "package.json");
+  if (existsSync(pkgPath)) {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    if (pkg.workspaces) {
+      return { type: 'npm', packages: Array.isArray(pkg.workspaces) ? pkg.workspaces : pkg.workspaces.packages || [] };
+    }
+  }
+  
+  if (existsSync('turbo.json')) {
+    return { type: 'turborepo', packages: [] };
+  }
+  
+  if (existsSync('nx.json')) {
+    return { type: 'nx', packages: [] };
+  }
+  
+  return null;
 }
