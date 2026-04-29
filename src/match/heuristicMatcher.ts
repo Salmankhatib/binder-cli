@@ -64,6 +64,16 @@ function fingerprint(text: string): string[] {
     if (text.includes('@')) tags.push('EMAIL');
     if (text.match(/\d{4}-\d{2}/)) tags.push('DATE');
     if (text.match(/[0-9a-f]{8}-/)) tags.push('UUID');
+    
+    // NEW FINGERPRINTS
+    if (text.match(/https?:\/\//)) tags.push('URL');
+    if (text.match(/^\d+(\.\d+)?$/)) tags.push('NUMBER');
+    if (text.match(/true|false/)) tags.push('BOOLEAN');
+    if (text.match(/^(Mr|Mrs|Ms|Dr)\./i)) tags.push('NAME_PREFIX');
+    if (text.length > 200) tags.push('LONG_TEXT');
+    if (text.match(/data:image|base64/)) tags.push('BINARY');
+    if (text.match(/^[A-Z]{2,3}-\d{3,}$/)) tags.push('SKU_CODE');
+    
     return tags;
 }
 
