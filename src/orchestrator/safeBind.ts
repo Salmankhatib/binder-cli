@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { safeRewrite } from '../rewrite/safeRewriter.js';
 import { heuristicMatch } from '../match/heuristicMatcher.js';
 import { semanticMatch } from '../match/semanticMatcher.js';
+import { contextualMatch } from '../match/contextualMatcher.js';
 import { rewriteFile } from '../rewrite/astRewriter.js';
 import { logger } from '../utils/logger.js';
 import { runTypeCheck } from '../test/typeCheck.js';
@@ -58,26 +59,47 @@ Once the frontend components are bound to hooks, you should remove this handler 
     const cached = getCachedBinding(filePath, mock.name);
     let hookName = (cached as any)?.hookName;
     let confidence = cached ? 1.0 : 0;
+    let ambiguous = false;
 
     if (!hookName) {
-        // 2. Heuristic Match
+        // ENSEMBLE MATCHING
         const hMatches = heuristicMatch([mock], hookNames, filePath);
-        const hBest = hMatches[0];
-
-        // 3. Semantic Match (Booster)
         const sMatches = semanticMatch([mock], hookNames.map(n => ({name: n, method: 'GET', path: '/', responseType: 'any'})), apiContent);
-        const sBest = sMatches.find(m => m.mockName === mock.name);
+        const cMatches = contextualMatch(mock, filePath, sourceFile, hookNames);
 
-        if (hBest && sBest && hBest.hookName === sBest.hookName) {
-            hookName = hBest.hookName;
-            confidence = Math.max(hBest.confidence, sBest.confidence, 0.9);
-        } else if (hBest && hBest.confidence > 0.8) {
-            hookName = hBest.hookName;
-            confidence = hBest.confidence;
+        const scores: Record<string, number> = {};
+        for (const name of hookNames) {
+            const h = hMatches.find(m => m?.hookName === name);
+            const s = sMatches.find(m => m?.hookName === name);
+            const c = cMatches.find(m => m?.hookName === name);
+
+            scores[name] = 
+                (h?.confidence || 0) * 0.35 +
+                (s?.confidence || 0) * 0.35 +
+                (c?.confidence || 0) * 0.30;
+        }
+
+        const sorted = Object.entries(scores)
+            .filter(([_, score]) => score > 0)
+            .sort((a, b) => b[1] - a[1]);
+
+        if (sorted.length > 0) {
+            const [bestName, bestScore] = sorted[0];
+            
+            if (bestScore >= 0.6) {
+                hookName = bestName;
+                confidence = bestScore;
+                
+                // Ambiguity check: If second-best is close, flag for review
+                const secondBest = sorted[1];
+                if (secondBest && (bestScore - secondBest[1]) < 0.15) {
+                    ambiguous = true;
+                }
+            }
         }
     }
     
-    if (!hookName || confidence < 0.5) {
+    if (!hookName || (confidence < 0.5 && !ambiguous)) {
       results.skip++;
       logger.debug(`Skipped: ${mock.name} (No confident hook match)`);
       continue;
@@ -85,8 +107,14 @@ Once the frontend components are bound to hooks, you should remove this handler 
     
     // Check if safe to auto-convert
     const rewriteResult = safeRewrite(mock, hookName, sourceFile);
+
+    // If ambiguous or low confidence, downgrade to TODO
+    let finalType = rewriteResult.type;
+    if (ambiguous && finalType === 'auto') {
+        finalType = 'todo';
+    }
     
-    switch(rewriteResult.type) {
+    switch(finalType) {
       case 'auto':
         const plan: BindingPlan = {
           bindings: [{
