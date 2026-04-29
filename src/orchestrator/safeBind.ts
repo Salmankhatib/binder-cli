@@ -10,8 +10,9 @@ import { rewriteFile } from '../rewrite/astRewriter.js';
 import { logger } from '../utils/logger.js';
 import { runTypeCheck } from '../test/typeCheck.js';
 import { generateCompatibilityTest } from '../test/compatibilityTest.js';
-import { getCachedBinding, saveBinding } from '../utils/cache.js';
+import { getCachedBinding, saveBinding, recordPatternSuccess } from '../utils/cache.js';
 import { BinderMCP } from '../mcp/client.js';
+import { findAllUsages } from '../analysis/usageFinder.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
 import type { BindingPlan } from '../common/types.js';
@@ -133,6 +134,11 @@ Once the frontend components are bound to hooks, you should remove this handler 
               results.auto = filePlan.bindings.length;
               filePlan.bindings.forEach(b => {
                   saveBinding(filePath, b.mockName, { hookName: b.hookName });
+                  
+                  // RECORD PATTERN SUCCESS (Learning Mode)
+                  const usages = findAllUsages(b.mockName, sourceFile);
+                  usages.forEach(u => recordPatternSuccess(u.structuralSignature, b.strategy || 'default'));
+
                   if (options.generateTests) {
                       generateCompatibilityTest(filePath, b, config.frontend.generatedDir);
                   }

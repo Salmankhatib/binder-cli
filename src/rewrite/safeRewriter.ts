@@ -2,6 +2,7 @@
 import { findAllUsages, UsageContext } from '../analysis/usageFinder.js';
 import { isSafePattern, getUnsafeReason } from '../safety/patterns.js';
 import { logger } from '../utils/logger.js';
+import { getLearnedStrategy } from '../utils/cache.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 
 export interface RewriteResult {
@@ -29,7 +30,7 @@ export function safeRewrite(
     };
   }
   
-  // Check if ALL usages are safe
+  // Check if ALL usages are safe or learned
   let lowestConfidence = 1;
   let unsafeUsages: UsageContext[] = [];
   let strategies = new Set<string>();
@@ -37,13 +38,23 @@ export function safeRewrite(
   for (const usage of usages) {
     const safePattern = isSafePattern(mock, usage);
     
-    if (!safePattern) {
-      unsafeUsages.push(usage);
-      lowestConfidence = 0;
-    } else {
-      lowestConfidence = Math.min(lowestConfidence, safePattern.confidence);
-      strategies.add(safePattern.rewriteStrategy);
+    if (safePattern) {
+        lowestConfidence = Math.min(lowestConfidence, safePattern.confidence);
+        strategies.add(safePattern.rewriteStrategy);
+        continue;
     }
+
+    // CHECK LEARNING CACHE (The "Brain")
+    const learnedStrategy = getLearnedStrategy(usage.structuralSignature);
+    if (learnedStrategy) {
+        logger.system(`🧠 Learning Mode: Recognizing complex pattern via AST signature.`);
+        strategies.add(learnedStrategy);
+        lowestConfidence = Math.min(lowestConfidence, 0.9); // High confidence in learned patterns
+        continue;
+    }
+    
+    unsafeUsages.push(usage);
+    lowestConfidence = 0;
   }
   
   // If ANY usage is unsafe, add TODO

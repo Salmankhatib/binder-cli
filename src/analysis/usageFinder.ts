@@ -9,6 +9,7 @@ export interface UsageContext {
   hasConditional: boolean;
   isInJsx: boolean;
   isInCallback: boolean;
+  structuralSignature: string; // The "DNA" of this usage
 }
 
 export function findAllUsages(mockName: string, sourceFile: any): UsageContext[] {
@@ -28,11 +29,21 @@ export function findAllUsages(mockName: string, sourceFile: any): UsageContext[]
       transformations: extractTransformations(id),
       hasConditional: isInConditional(id),
       isInJsx: isInsideJsx(id),
-      isInCallback: isInsideCallback(id)
+      isInCallback: isInsideCallback(id),
+      structuralSignature: generateSignature(id)
     });
   }
   
   return usages;
+}
+
+export function generateSignature(id: Identifier): string {
+  const parent = id.getParent();
+  const lineage = id.getAncestors().slice(0, 4).map(a => a.getKindName()).join('>');
+  const siblingKinds = parent?.getChildren().map(c => c.getKindName()).join('|') || '';
+  
+  // This string represents the logical "neighborhood" of the mock
+  return `${lineage}[${siblingKinds}]`;
 }
 
 export function extractTransformations(id: Identifier): string[] {
