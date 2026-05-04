@@ -14,6 +14,7 @@ import { scanMocks } from "./scan/mockScanner.js";
 import { rewriteFile } from "./rewrite/astRewriter.js";
 import { validateCommand } from "./validate/validateCommand.js";
 import { discoveryPhase } from "./discover/scout.js";
+import { createBackup, undoLast, listHistory } from "./cli/undo.js";
 import type { Config } from "./config/types.js";
 
 const program = new Command();
@@ -191,22 +192,18 @@ program
           if (options.dryRun) {
               console.log(pc.gray(`\n--- DRY RUN: ${file} ---\n`) + bindResults.rewrittenCode);
           } else {
+              createBackup(file);
               writeFileSync(file, bindResults.rewrittenCode);
-              logger.success(`✔ Applied changes to ${file} (${bindResults.auto} auto, ${bindResults.todo} TODOs).`);
+              logger.success(`✔ Applied changes to ${file} (${bindResults.auto} auto, ${bindResults.human} human, ${bindResults.todo} TODOs).`);
           }
       }
 
-      if (options.interactive && bindResults.todos.length > 0) {
-        const manualResults = await manualReviewMode(bindResults.todos);
-        for (const res of manualResults) {
-          if (res.willAutoConvert) {
-            // Re-run rewrite for specific override
-            const { rewriteFile } = await import("./rewrite/astRewriter.js");
-            const plan = { bindings: [{ mockName: res.mock.name, hookName: res.hook, confidence: 1.0, actionType: 'READ' as const }] };
-            const rewritten = rewriteFile(file, plan as any, config.frontend.generatedDir);
-            if (!options.dryRun) writeFileSync(file, rewritten);
-            logger.success(`✓ Manual Override applied for ${res.mock.name}.`);
-          }
+      if (bindResults.todos.length > 0) {
+        // Handle remaining TODOs (those not resolved by human)
+        for (const res of bindResults.todos) {
+            // Append TODO comments to the file
+            // Simplified: we should ideally insert them near the mock site
+            logger.info(`  [TODO] ${res.mock.name}: ${res.reason}`);
         }
       }
     }
@@ -238,6 +235,20 @@ program
     } else {
         console.table(report.map(r => ({ File: r.file, Mocks: r.count })));
     }
+  });
+
+program
+  .command("undo <path>")
+  .description("Restore a file to its state before the last Binder operation")
+  .action((path) => {
+    undoLast(resolve(path));
+  });
+
+program
+  .command("history [path]")
+  .description("List binding history for a file or project")
+  .action((path) => {
+    listHistory(path ? resolve(path) : undefined);
   });
 
 program.parse();

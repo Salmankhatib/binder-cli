@@ -2,23 +2,17 @@
 import { Project, SyntaxKind } from 'ts-morph';
 import { resolve, dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
-import { safeRewrite } from '../rewrite/safeRewriter.js';
-import { heuristicMatch } from '../match/heuristicMatcher.js';
-import { semanticMatch } from '../match/semanticMatcher.js';
-import { contextualMatch } from '../match/contextualMatcher.js';
 import { rewriteFile } from '../rewrite/astRewriter.js';
 import { logger } from '../utils/logger.js';
 import { runTypeCheck } from '../test/typeCheck.js';
-import { generateCompatibilityTest } from '../test/compatibilityTest.js';
-import { getCachedBinding, saveBinding, recordPatternSuccess } from '../utils/cache.js';
-import { BinderMCP } from '../mcp/client.js';
-import { findAllUsages, generateSignature } from '../analysis/usageFinder.js';
+import { DecisionEngine } from '../engine/decisionEngine.js';
+import { SessionManager } from '../human/sessionManager.js';
+import { findAllUsages } from '../analysis/usageFinder.js';
 import { tracePropDrilling } from '../analysis/propTracer.js';
-import { LearningEngine, calculateConfidence } from '../learning/engine.js';
-import { generateShapeRemapper } from '../rewrite/shapeRemapper.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
-import type { BindingPlan } from '../common/types.js';
+import type { BindingPlan, Binding } from '../common/types.js';
+import { ProjectContext } from '../engine/types.js';
 
 export async function safeBind(
   mocks: MockFinding[], 
@@ -29,15 +23,15 @@ export async function safeBind(
 ) {
   const results = {
     auto: 0,
+    human: 0,
     todo: 0,
     skip: 0,
     rewrittenCode: null as string | null,
     todos: [] as Array<{mock: MockFinding, hook: string, reason: string, todoComment: string}>
   };
 
-  const mcp = new BinderMCP();
-  const engine = new LearningEngine();
-  await mcp.initialize(config);
+  const decisionEngine = new DecisionEngine();
+  const sessionManager = new SessionManager();
 
   const tsConfigPath = findNearestTsConfig(dirname(filePath));
   const project = new Project({
@@ -49,6 +43,15 @@ export async function safeBind(
   const sourceFile = project.addSourceFileAtPath(filePath);
   const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
   
+  const projectContext: ProjectContext = {
+    filePath,
+    folderContext: dirname(filePath),
+    imports: sourceFile.getImportDeclarations().map(i => i.getModuleSpecifierValue()),
+    dependencies: [], // Could be populated from package.json
+    detectedStyle: config.frontend.loadingTemplate ? 'Skeleton' : 'default',
+    tsConfigPath: tsConfigPath
+  };
+
   const filePlan: BindingPlan = {
       bindings: [],
       loadingTemplate: config.frontend.loadingTemplate,
@@ -56,98 +59,70 @@ export async function safeBind(
   };
 
   for (const mock of mocks) {
-    if (mock.type === 'msw_handler' || mock.type === 'mirage_handler') {
+    const usages = findAllUsages(mock.name, sourceFile);
+    const drills = await tracePropDrilling(mock.name, sourceFile, project);
+    
+    const decision = await decisionEngine.decide(
+      mock, 
+      usages as any, 
+      projectContext, 
+      hookNames, 
+      apiContent, 
+      drills
+    );
+
+    if (decision.type === 'auto') {
+      logger.success(`  [Auto] ${mock.name} -> ${decision.binding?.hookName} (${(decision.confidence * 100).toFixed(0)}%)`);
+      filePlan.bindings.push(decision.binding!);
+      results.auto++;
+    } else if (decision.type === 'human' && options.interactive) {
+      const { choice, apply } = await sessionManager.resolveHumanDecision(mock, decision);
+      if (apply) {
+        const binding: Binding = {
+          ...decision.binding!,
+          strategy: choice.id
+        };
+        filePlan.bindings.push(binding);
+        results.human++;
+      } else {
+        results.todo++;
         results.todos.push({
           mock,
-          hook: 'N/A',
-          reason: 'Mock Server Handler detected',
-          todoComment: `/* TODO(BINDER): Detects ${mock.type.replace('_', ' ').toUpperCase()}. 
-Once the frontend components are bound to hooks, you should remove this handler from your mock server setup. */`
+          hook: decision.binding?.hookName || 'unknown',
+          reason: 'human-skipped',
+          todoComment: `/* TODO(BINDER): Human skipped this decision. */`
         });
-        results.todo++;
-        continue;
-    }
-
-    // 1. Trace Prop Drilling (Phase 10)
-    const drills = await tracePropDrilling(mock.name, sourceFile, project);
-    if (drills.length > 0) {
-        logger.info(`  [Prop Drill] Trace found: ${mock.name} passed to ${drills[0].componentName}`);
-    }
-
-    // 2. Matching Logic (Ensemble)
-    const cached = getCachedBinding(filePath, mock.name);
-    let hookName = (cached as any)?.hookName;
-    let confidence = cached ? 1.0 : 0;
-    let ambiguous = false;
-
-    if (!hookName) {
-        const hMatches = heuristicMatch([mock], hookNames, filePath);
-        const sMatches = semanticMatch([mock], hookNames.map(n => ({name: n, method: 'GET', path: '/', responseType: 'any'})), apiContent);
-        const cMatches = contextualMatch(mock, filePath, sourceFile, hookNames);
-
-        const scores: Record<string, number> = {};
-        for (const name of hookNames) {
-            const h = hMatches.find(m => m?.hookName === name)?.confidence || 0;
-            const s = sMatches.find(m => m?.hookName === name)?.confidence || 0;
-            const c = cMatches.find(m => m?.hookName === name)?.confidence || 0;
-            
-            // Ensemble Score: Use the strongest signal
-            scores[name] = Math.max(h, s, c);
-        }
-
-        const sorted = Object.entries(scores).filter(([_, s]) => s > 0).sort((a, b) => b[1] - a[1]);
-        if (sorted.length > 0 && (sorted[0][1] >= 0.6)) {
-            hookName = sorted[0][0];
-            const ensembleScore = sorted[0][1];
-            confidence = ensembleScore;
-            
-            if (sorted.length > 1 && (sorted[0][1] - sorted[1][1] < 0.2)) {
-                ambiguous = true;
-            }
-            
-            // Learning Engine Boost (Phase 9)
-            const prediction = engine.predict({
-                mockName: mock.name,
-                structuralSignature: generateSignature(sourceFile.getDescendantsOfKind(SyntaxKind.Identifier).find(id => id.getText() === mock.name)!)
-            } as any);
-            
-            confidence = calculateConfidence(ensembleScore, prediction?.confidence || 0, 0);
-            
-            if (sorted[1] && (confidence - sorted[1][1]) < 0.15) ambiguous = true;
-        }
-    }
-
-    if (!hookName || (confidence < 0.5 && !ambiguous)) {
-      results.skip++;
-      continue;
-    }
-
-    // 3. Safety Check
-    const rewriteResult = safeRewrite(mock, hookName, sourceFile);
-    
-    // 4. Shape Remapping (Phase 13)
-    let transformer = undefined;
-    if (mock.resolvedContent && mock.inferredShape) {
-        const remapper = generateShapeRemapper(mock.name, mock.inferredShape, {}); // Hook shape placeholder
-        if (remapper) {
-            transformer = remapper.remapperName;
-        }
-    }
-
-    if (rewriteResult.type === 'auto' && !ambiguous) {
-        filePlan.bindings.push({
-            mockName: mock.name,
-            hookName: hookName,
-            confidence: confidence,
-            actionType: 'READ',
-            strategy: rewriteResult.strategy,
-            transformer: transformer,
-            loadingStrategy: config.frontend.loadingTemplate ? 'early-return-skeleton' : 'none',
-            errorStrategy: config.frontend.errorTemplate ? 'early-return-error' : 'none'
-        });
+      }
     } else {
-        const todoComment = rewriteResult.todoComment || `/* TODO(BINDER): Ambiguous match or complex pattern. Suggestion: ${hookName} */`;
-        results.todos.push({ mock, hook: hookName, reason: rewriteResult.reason || 'ambiguous', todoComment });
+      // TODO or Non-interactive Human
+      const context = decision.todoContext;
+      const todoComment = `/* TODO(BINDER): ${context?.explanation}. Steps: ${context?.suggestedSteps.join(', ')} */`;
+      results.todos.push({
+        mock,
+        hook: decision.binding?.hookName || 'unknown',
+        reason: context?.reason || 'complex',
+        todoComment
+      });
+      results.todo++;
+    }
+  }
+
+  if (filePlan.bindings.length > 0) {
+    results.rewrittenCode = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
+  }
+
+  return results;
+}
+
+function findNearestTsConfig(dir: string): string | null {
+  let current = dir;
+  while (current !== dirname(current)) {
+    const p = join(current, 'tsconfig.json');
+    if (existsSync(p)) return p;
+    current = dirname(current);
+  }
+  return null;
+}
         results.todo++;
     }
   }
