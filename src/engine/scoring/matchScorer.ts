@@ -39,7 +39,8 @@ export class MatchScorer {
       const h = hMatches.find(m => m?.hookName === name)?.confidence || 0;
       const s = sMatches.find(m => m?.hookName === name)?.confidence || 0;
       const c = cMatches.find(m => m.hookName === name)?.confidence || 0;
-      scores[name] = Math.max(h, s * 0.9, c * 0.8); // Weight semantic slightly less
+      // BOOST: Ensemble favors the best signal. Increased weights.
+      scores[name] = Math.max(h, s * 0.95, c * 0.85); 
     }
 
     const sorted = Object.entries(scores)

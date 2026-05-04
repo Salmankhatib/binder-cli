@@ -104,9 +104,11 @@ export class DecisionEngine {
       projectContext: projectContext.filePath
     });
 
+    let finalScore = normalizedScore;
     if (prediction) {
+      finalScore += 10;
       chain.push({
-        layer: 'semantic', // Re-using semantic layer for learned boost
+        layer: 'semantic', 
         score: 10,
         maxScore: 10,
         explanation: `Learned pattern detected: ${prediction.choice}`,
@@ -115,12 +117,37 @@ export class DecisionEngine {
     }
 
     // Determine decision type
-    if ((normalizedScore >= 85 || (prediction && normalizedScore >= 75)) && patternResult.isAuto) {
-      // AUTO: All green, safe pattern
+    // Determine decision type
+    if (patternResult.category === 'todo') {
+      return {
+        type: 'todo',
+        confidence: finalScore / 100,
+        reasoning: chain,
+        todoContext: this.todoGenerator.generate(mock, usages, patternResult, matchResult)
+      };
+    }
+
+    // v1.0.0 TARGET OPTIMIZATION: 
+    const isAutoPattern = patternResult.isAuto;
+    const isVerySafePattern = isAutoPattern && (patternResult.patternName === 'direct-assignment' || patternResult.patternName === 'simple-map' || patternResult.patternName === 'jsx-prop-direct');
+    const hasMatch = matchResult.confidence > 0.15;
+    
+    // Auto if:
+    // 1. High total score (>= 55)
+    // 2. Very safe pattern + any match
+    // 3. Strong Auto pattern + any match (>= 30 pattern score)
+    const shouldAuto = isAutoPattern && (
+        finalScore >= 55 || 
+        (isVerySafePattern && hasMatch) ||
+        (patternResult.score >= 30 && hasMatch)
+    );
+
+    if (shouldAuto) {
+      // AUTO: All green or strongly patterned
       const binding: Binding = {
         mockName: mock.name,
         hookName: matchResult.bestHook,
-        confidence: normalizedScore / 100,
+        confidence: finalScore / 100,
         actionType: this.inferActionType(mock, usages),
         strategy: patternResult.strategy,
         transformer: patternResult.transformer,
@@ -130,21 +157,34 @@ export class DecisionEngine {
 
       return {
         type: 'auto',
-        confidence: normalizedScore / 100,
+        confidence: finalScore / 100,
         reasoning: chain,
         binding
       };
     }
 
-    if (normalizedScore >= 60 && patternResult.isHuman) {
-      // HUMAN-IN-LOOP: Ambiguous but structured
-      const options = this.optionsGenerator.generate(mock, usages, patternResult.humanPattern!, projectContext, matchResult);
+    if (finalScore >= 25) {
+      // HUMAN-IN-LOOP
+      const options = this.optionsGenerator.generate(
+        mock, 
+        usages, 
+        patternResult.humanPattern || patternResult.patternName || 'generic', 
+        projectContext, 
+        matchResult
+      );
       
       return {
         type: 'human',
-        confidence: normalizedScore / 100,
+        confidence: finalScore / 100,
         reasoning: chain,
-        options
+        options,
+        binding: {
+            mockName: mock.name,
+            hookName: matchResult.bestHook,
+            confidence: finalScore / 100,
+            actionType: this.inferActionType(mock, usages),
+            strategy: patternResult.strategy || 'default'
+        }
       };
     }
 

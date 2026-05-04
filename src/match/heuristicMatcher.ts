@@ -30,7 +30,14 @@ export function heuristicMatch(
       const dist = levenshtein(mockNorm, hookNorm);
       const maxLen = Math.max(mockNorm.length, hookNorm.length);
       const similarity = maxLen === 0 ? 0 : 1 - dist / maxLen;
-      weight += similarity * 0.8; // Increased base name weight from 0.6 to 0.8
+      weight += similarity * 0.7; 
+
+      // 1.5 Substring Boost (+40% for strong sub-matches)
+      if (mockNorm === hookNorm) {
+          weight += 0.6; // Increased from 0.5
+      } else if (hookNorm.includes(mockNorm) || mockNorm.includes(hookNorm)) {
+          weight += 0.45; // Increased from 0.35
+      }
 
       // 2. Folder Context Boost (+15%)
       const hookKeyword = hookNorm.replace('use_', '');
@@ -48,7 +55,7 @@ export function heuristicMatch(
 
       const confidence = Math.min(weight, 1.0);
 
-      if (confidence >= 0.6) { // Lowered from 0.7
+      if (confidence >= 0.5) { 
         if (!best || confidence > best.confidence) {
           best = { mockName: mock.name, hookName: hook, confidence };
         }

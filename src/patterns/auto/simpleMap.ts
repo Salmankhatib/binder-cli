@@ -17,7 +17,7 @@ export class SimpleMapPattern extends AutoPattern {
 
     return {
       matches: true,
-      confidence: 0.85,
+      confidence: 1.0,
       strategy: 'default'
     };
   }

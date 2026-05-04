@@ -31,23 +31,49 @@ export class TypeScorer {
     }
 
     // Extract return type keys
-    const hookType = hook.getType();
-    const typeText = hookType.getText();
-    let dataType = hookType;
+    let hookType = hook.getType();
     
-    if (typeText.includes('UseQueryResult') || typeText.includes('UseMutationResult')) {
-      const typeArgs = hookType.getTypeArguments();
-      if (typeArgs.length > 0) dataType = typeArgs[0];
+    // If it's a function, get its return type
+    const callSignatures = hookType.getCallSignatures();
+    if (callSignatures.length > 0) {
+        hookType = callSignatures[0].getReturnType();
+    }
+
+    let dataType = hookType;
+    const dataProp = hookType.getProperty('data');
+    if (dataProp) {
+        dataType = project.getTypeChecker().getTypeOfSymbolAtLocation(dataProp, hook);
     }
 
     const hookKeys = dataType.isArray() 
       ? this.extractKeysFromArray(dataType)
       : dataType.getApparentProperties().map(p => p.getName());
 
-    const mockKeys = Object.keys(mock.inferredShape);
+    // Fix: If both are arrays of primitives, they are fully compatible
+    const isPrimitiveArray = (type: any) => {
+        if (!type.isArray()) return false;
+        const et = type.getArrayElementType();
+        return et && (et.isString() || et.isNumber() || et.isBoolean() || et.getText() === 'any');
+    };
+
+    if (isPrimitiveArray(dataType) && (!mock.inferredShape || Object.keys(mock.inferredShape).length === 0)) {
+         return {
+            score: 20,
+            compatibility: 'full',
+            explanation: 'Both are arrays of primitives or any. Full match.'
+        };
+    }
+
+    const mockKeys = Object.keys(mock.inferredShape || {});
     const intersection = mockKeys.filter(k => hookKeys.includes(k));
     const union = Array.from(new Set([...mockKeys, ...hookKeys]));
-    const similarity = union.length > 0 ? intersection.length / union.length : 0;
+    let similarity = union.length > 0 ? intersection.length / union.length : 0;
+
+    // BOOST: If both are arrays and mock is plural, boost similarity
+    const isMockPlural = mock.name.endsWith('S') || mock.name.includes('LIST') || mock.name.includes('DATA');
+    if (dataType.isArray() && isMockPlural) {
+        similarity = Math.max(similarity, 0.7);
+    }
 
     if (similarity > 0.8) {
       return {

@@ -17,7 +17,7 @@ export class SearchStrategyPattern extends HumanPattern {
 
     return {
       matches: true,
-      confidence: 0.8,
+      confidence: 0.75, // Lowered from 0.8
       ambiguityType: 'search-strategy'
     };
   }

@@ -20,6 +20,12 @@ export function findAllUsages(mockName: string, sourceFile: any): UsageContext[]
   
   for (const id of identifiers) {
     const parent = id.getParent();
+    
+    // Skip the declaration identifier itself
+    if (Node.isVariableDeclaration(parent) && parent.getNameNode() === id) {
+        continue;
+    }
+    
     const grandparent = parent?.getParent();
     
     usages.push({

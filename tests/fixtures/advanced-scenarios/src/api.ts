@@ -1,0 +1,9 @@
+// tests/fixtures/advanced-scenarios/src/api.ts
+export const useGetProjects = () => ({ data: [{ id: "", name: "", status: "" }], isLoading: false });
+export const useGetCurrentUser = () => ({ data: { id: "", name: "", role: "" }, isLoading: false });
+export const useGetMessyItems = () => ({ data: [{ val: 0, text: "" }], isLoading: false });
+export const useGetComplexTree = () => ({ data: { nodes: [{ id: "", children: [""], data: { meta: "" } }] }, isLoading: false });
+export const useGetConfig = () => ({ data: "{\"enabled\": false}", isLoading: false });
+export const useGetCategories = () => ({ data: [""], isLoading: false });
+export const useGetUserRole = () => ({ data: "USER", isLoading: false });
+export const useGetThemeColor = () => ({ data: "#000000", isLoading: false });

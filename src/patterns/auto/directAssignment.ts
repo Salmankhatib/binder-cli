@@ -17,7 +17,7 @@ export class DirectAssignmentPattern extends AutoPattern {
 
     return {
       matches: true,
-      confidence: 0.95,
+      confidence: 1.0,
       strategy: 'default'
     };
   }

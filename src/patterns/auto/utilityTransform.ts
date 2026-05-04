@@ -1,4 +1,5 @@
 // src/patterns/auto/utilityTransform.ts
+import { SyntaxKind } from 'ts-morph';
 import { MockFinding, Usage } from '../../engine/types.js';
 import { AutoPattern, AutoPatternResult } from './base.js';
 
@@ -15,8 +16,8 @@ export class UtilityTransformPattern extends AutoPattern {
     // Also check if usage.node is passed to a function named like one of these
     let isArg = false;
     const parent = usage.node.getParent();
-    if (parent?.getKind() === import('ts-morph').SyntaxKind.CallExpression) {
-        const text = parent.asKind(import('ts-morph').SyntaxKind.CallExpression)?.getExpression().getText();
+    if (parent?.getKind() === SyntaxKind.CallExpression) {
+        const text = (parent as any).getExpression().getText();
         if (utils.some(u => text?.includes(u))) {
             isArg = true;
         }

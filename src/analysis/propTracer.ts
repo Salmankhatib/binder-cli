@@ -22,25 +22,31 @@ export async function tracePropDrilling(
     const jsxAttr = id.getFirstAncestorByKind(SyntaxKind.JsxAttribute);
     if (!jsxAttr) continue;
     
-    const propName = jsxAttr.getName();
-    const openingEl = jsxAttr.getFirstAncestorByKind(SyntaxKind.JsxOpeningElement) || 
-                      jsxAttr.getFirstAncestorByKind(SyntaxKind.JsxSelfClosingElement);
+    const propName = (jsxAttr as any).getNameNode?.().getText() || (jsxAttr as any).getName?.() || 'unknown';
+    const openingEl = (jsxAttr as any).getFirstAncestorByKind(SyntaxKind.JsxOpeningElement) || 
+                      (jsxAttr as any).getFirstAncestorByKind(SyntaxKind.JsxSelfClosingElement);
     
     if (!openingEl) continue;
     
-    const componentName = openingEl.getTagNameNode().getText();
+    const componentName = (openingEl as any).getTagNameNode().getText();
     
     // Find component definition across project
-    const definitions = (openingEl.getTagNameNode() as any).getDefinitions();
-    if (definitions && definitions.length > 0) {
-        const def = definitions[0];
-        results.push({
-            sourceFile: sourceFile.getFilePath(),
-            targetFile: def.getSourceFile().getFilePath(),
-            propName,
-            componentName
-        });
+    let targetFile = 'unknown';
+    try {
+        const definitions = (openingEl as any).getTagNameNode().getDefinitions();
+        if (definitions && definitions.length > 0) {
+            targetFile = definitions[0].getSourceFile().getFilePath();
+        }
+    } catch (e) {
+        // Fallback for isolated files
     }
+
+    results.push({
+        sourceFile: sourceFile.getFilePath(),
+        targetFile: targetFile,
+        propName,
+        componentName
+    });
   }
   
   return results;

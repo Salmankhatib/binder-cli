@@ -106,27 +106,45 @@ export async function safeBind(
     }
   }
 
+  const mcp = new BinderMCP();
+  await mcp.initialize(config);
+
   // Transactional Rewrite & Validation
   if (filePlan.bindings.length > 0) {
       try {
-          const rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
+          let rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
+          
+          // Self-healing layer: use MCP to fix immediate issues (imports, syntax, etc.)
+          rewritten = await mcp.autoFix(filePath, rewritten);
+          
           const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
           
           if (check.passed) {
               results.rewrittenCode = rewritten;
           } else {
-              logger.warn(`  [Warning] Type check failed for auto-conversions in ${filePath}. Reverting to TODOs.`);
-              for (const binding of filePlan.bindings) {
-                  results.todos.push({
-                      mock: mocks.find(m => m.name === binding.mockName)!,
-                      hook: binding.hookName,
-                      reason: 'type-check-failure',
-                      todoComment: `/* TODO(BINDER): Auto-conversion failed type check. Manual review required. */`
-                  });
+              logger.warn(`  [Warning] Type check failed for auto-conversions in ${filePath}. Attempting self-heal...`);
+              
+              // Second pass self-heal with diagnostics
+              const diagnostics = check.errors?.map(e => e.message) || [];
+              const healed = await mcp.repair(filePath, rewritten, diagnostics);
+              
+              if (healed.success && healed.newCode) {
+                logger.success(`  [Heal] MCP successfully repaired surgery issues.`);
+                results.rewrittenCode = healed.newCode;
+              } else {
+                logger.error(`  [Heal] MCP could not resolve type errors. Reverting.`);
+                for (const binding of filePlan.bindings) {
+                    results.todos.push({
+                        mock: mocks.find(m => m.name === binding.mockName)!,
+                        hook: binding.hookName,
+                        reason: 'type-check-failure',
+                        todoComment: `/* TODO(BINDER): Auto-conversion failed type check. Manual review required. */`
+                    });
+                }
+                results.todo += filePlan.bindings.length;
+                results.auto = 0;
+                results.human = 0;
               }
-              results.todo += filePlan.bindings.length;
-              results.auto = 0;
-              results.human = 0;
           }
       } catch (e: any) {
           logger.error(`Surgery failed: ${e.message}`);

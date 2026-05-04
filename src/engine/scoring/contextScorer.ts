@@ -21,7 +21,7 @@ export class ContextScorer {
     let score = 0;
     if (folderMatch) score += 5;
     if (styleMatch) score += 3;
-    if (projectContext.dependencies.includes('@tanstack/react-query')) score += 2;
+    if (projectContext.dependencies.includes('@tanstack/react-query')) score += 5; // Increased from 2
 
     return {
       score,

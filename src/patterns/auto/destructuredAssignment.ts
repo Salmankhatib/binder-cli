@@ -7,10 +7,10 @@ export class DestructuredAssignmentPattern extends AutoPattern {
   readonly name = 'destructured-assignment';
 
   test(mock: MockFinding, usage: Usage): AutoPatternResult {
-    const isDestructured = usage.parent?.getKind() === SyntaxKind.VariableDeclaration 
+    const isDestructured = (usage.parent?.getKind() === SyntaxKind.VariableDeclaration 
       && (usage.parent.asKind(SyntaxKind.VariableDeclaration)?.getNameNode().getKind() === SyntaxKind.ObjectBindingPattern || 
-          usage.parent.asKind(SyntaxKind.VariableDeclaration)?.getNameNode().getKind() === SyntaxKind.ArrayBindingPattern)
-      && usage.transformations.length === 0;
+          usage.parent.asKind(SyntaxKind.VariableDeclaration)?.getNameNode().getKind() === SyntaxKind.ArrayBindingPattern))
+      || (usage.parent?.getKind() === SyntaxKind.BindingElement);
 
     if (!isDestructured) {
       return { matches: false, confidence: 0, strategy: 'default' };
@@ -18,7 +18,7 @@ export class DestructuredAssignmentPattern extends AutoPattern {
 
     return {
       matches: true,
-      confidence: 0.95,
+      confidence: 1.0,
       strategy: 'destructure-from-hook'
     };
   }

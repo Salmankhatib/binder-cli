@@ -62,6 +62,10 @@ import { ConditionalFeatureFlagPattern } from './human/conditionalFeatureFlag.js
 import { AuthorizationEmbeddedPattern } from './human/authorizationEmbedded.js';
 import { MockWithLogicPattern } from './human/mockWithLogic.js';
 
+import { TodoPattern } from './todo/base.js';
+import { SideEffectMockPattern } from './todo/sideEffectMock.js';
+import { PerformanceCriticalPattern } from './todo/performanceCritical.js';
+
 export interface PatternMatch {
   patternName: string;
   category: 'auto' | 'human' | 'todo';
@@ -74,6 +78,7 @@ export interface PatternMatch {
 export class PatternRegistry {
   private autoPatterns: AutoPattern[];
   private humanPatterns: HumanPattern[];
+  private todoPatterns: TodoPattern[];
 
   constructor() {
     this.autoPatterns = [
@@ -139,38 +144,67 @@ export class PatternRegistry {
       new AuthorizationEmbeddedPattern(),
       new MockWithLogicPattern(),
     ];
+
+    this.todoPatterns = [
+      new SideEffectMockPattern(),
+      new PerformanceCriticalPattern(),
+    ];
   }
 
   findMatches(mock: MockFinding, usages: Usage[]): PatternMatch[] {
     const matches: PatternMatch[] = [];
 
     for (const usage of usages) {
-      // Check auto patterns first
+      // 1. Check TODO patterns first (Highest priority)
+      for (const pattern of this.todoPatterns) {
+        try {
+            const result = pattern.test(mock, usage);
+            if (result.matches) {
+              matches.push({
+                patternName: pattern.name,
+                category: 'todo',
+                confidence: result.confidence,
+                strategy: 'todo',
+                usage
+              });
+            }
+        } catch (e: any) {}
+      }
+
+      // 2. Check auto patterns
       for (const pattern of this.autoPatterns) {
-        const result = pattern.test(mock, usage);
-        if (result.matches) {
-          matches.push({
-            patternName: pattern.name,
-            category: 'auto',
-            confidence: result.confidence,
-            strategy: result.strategy,
-            transformer: result.transformer,
-            usage
-          });
+        try {
+            const result = pattern.test(mock, usage);
+            if (result.matches) {
+              matches.push({
+                patternName: pattern.name,
+                category: 'auto',
+                confidence: result.confidence,
+                strategy: result.strategy,
+                transformer: result.transformer,
+                usage
+              });
+            }
+        } catch (e: any) {
+            // console.error(`Error in pattern ${pattern.name}: ${e.message}`);
         }
       }
 
       // Check human patterns
       for (const pattern of this.humanPatterns) {
-        const result = pattern.test(mock, usage);
-        if (result.matches) {
-          matches.push({
-            patternName: pattern.name,
-            category: 'human',
-            confidence: result.confidence,
-            strategy: 'human-decision',
-            usage
-          });
+        try {
+            const result = pattern.test(mock, usage);
+            if (result.matches) {
+              matches.push({
+                patternName: pattern.name,
+                category: 'human',
+                confidence: result.confidence,
+                strategy: 'human-decision',
+                usage
+              });
+            }
+        } catch (e: any) {
+            // console.error(`Error in pattern ${pattern.name}: ${e.message}`);
         }
       }
     }

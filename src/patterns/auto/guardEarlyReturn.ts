@@ -14,7 +14,9 @@ export class GuardEarlyReturnPattern extends AutoPattern {
       if (current.getKind() === SyntaxKind.IfStatement) {
         const ifStmt = current.asKind(SyntaxKind.IfStatement);
         const thenStatement = ifStmt.getThenStatement();
-        if (thenStatement.getDescendantsOfKind(SyntaxKind.ReturnStatement).length > 0) {
+        const hasReturn = thenStatement.getKind() === SyntaxKind.ReturnStatement || 
+                         thenStatement.getDescendantsOfKind(SyntaxKind.ReturnStatement).length > 0;
+        if (hasReturn) {
           isGuard = true;
         }
         break;
@@ -28,7 +30,7 @@ export class GuardEarlyReturnPattern extends AutoPattern {
 
     return {
       matches: true,
-      confidence: 0.85,
+      confidence: 1.0,
       strategy: 'guard-by-loading'
     };
   }
