@@ -1,7 +1,7 @@
 // src/orchestrator/safeBind.ts
-import { Project, SyntaxKind } from 'ts-morph';
+import { Project, SyntaxKind, Node } from 'ts-morph';
 import { resolve, dirname, join } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { rewriteFile } from '../rewrite/astRewriter.js';
 import { logger } from '../utils/logger.js';
 import { runTypeCheck } from '../test/typeCheck.js';
@@ -47,7 +47,7 @@ export async function safeBind(
     filePath,
     folderContext: dirname(filePath),
     imports: sourceFile.getImportDeclarations().map(i => i.getModuleSpecifierValue()),
-    dependencies: [], // Could be populated from package.json
+    dependencies: [], 
     detectedStyle: config.frontend.loadingTemplate ? 'Skeleton' : 'default',
     tsConfigPath: tsConfigPath
   };
@@ -94,7 +94,6 @@ export async function safeBind(
         });
       }
     } else {
-      // TODO or Non-interactive Human
       const context = decision.todoContext;
       const todoComment = `/* TODO(BINDER): ${context?.explanation}. Steps: ${context?.suggestedSteps.join(', ')} */`;
       results.todos.push({
@@ -107,15 +106,60 @@ export async function safeBind(
     }
   }
 
+  // Transactional Rewrite & Validation
   if (filePlan.bindings.length > 0) {
-    results.rewrittenCode = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
+      try {
+          const rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
+          const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
+          
+          if (check.passed) {
+              results.rewrittenCode = rewritten;
+          } else {
+              logger.warn(`  [Warning] Type check failed for auto-conversions in ${filePath}. Reverting to TODOs.`);
+              for (const binding of filePlan.bindings) {
+                  results.todos.push({
+                      mock: mocks.find(m => m.name === binding.mockName)!,
+                      hook: binding.hookName,
+                      reason: 'type-check-failure',
+                      todoComment: `/* TODO(BINDER): Auto-conversion failed type check. Manual review required. */`
+                  });
+              }
+              results.todo += filePlan.bindings.length;
+              results.auto = 0;
+              results.human = 0;
+          }
+      } catch (e: any) {
+          logger.error(`Surgery failed: ${e.message}`);
+      }
+  }
+
+  // Insert TODOs into the code if any
+  if (results.todos.length > 0) {
+      const targetContent = results.rewrittenCode || readFileSync(filePath, 'utf-8');
+      const tempFile = project.createSourceFile(filePath + '.tmp.tsx', targetContent, { overwrite: true });
+      
+      for (const t of results.todos) {
+          insertTodoComment(tempFile, t.mock, t.todoComment);
+      }
+      
+      results.rewrittenCode = tempFile.getFullText();
   }
 
   return results;
 }
 
-function findNearestTsConfig(dir: string): string | null {
-  let current = dir;
+function insertTodoComment(sourceFile: any, mock: MockFinding, comment: string) {
+  const line = mock.line;
+  const pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, 0);
+  const node = sourceFile.getDescendantAtPos(pos);
+  if (node) {
+    const parent = node.getParentWhile(n => n.getStartLineNumber() === line) || node;
+    parent.replaceWithText(`${comment}\n${parent.getText()}`);
+  }
+}
+
+function findNearestTsConfig(startDir: string): string | null {
+  let current = resolve(startDir);
   while (current !== dirname(current)) {
     const p = join(current, 'tsconfig.json');
     if (existsSync(p)) return p;

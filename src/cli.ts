@@ -171,7 +171,6 @@ program
       : [absTarget];
 
     const { safeBind } = await import("./orchestrator/safeBind.js");
-    const { manualReviewMode } = await import("./cli/reviewMode.js");
 
     for (const file of files) {
       logger.system(`\n>>> Analyzing: ${pc.bold(file)}`);
