@@ -41,38 +41,43 @@ program
 
 program
   .command("init")
-  .description("Initialize a new Binder project with a TUI")
+  .description("Initialize a new Binder project with an interactive setup")
   .action(async () => {
-    logger.startSpinner("📡 Handshaking with environment...");
-    const projectMap = await discoveryPhase({ backend: { schemaPath: "", url: "" }, frontend: { generatedDir: "" } } as any);
-    logger.stopSpinner(true, "Protocol sequence established.");
-    
     await revealLogo();
-    console.log(pc.bold("\n🚀 WELCOME TO BINDER INITIALIZATION\n"));
+    console.log(pc.bold(pc.cyan("\n🚀 BINDER INITIALIZATION SEQUENCE STARTING...\n")));
     
-    // 1. Dependency Check
+    logger.startSpinner("📡 Analyzing project DNA...");
+    const projectMap = await discoveryPhase({ backend: { schemaPath: "", url: "" }, frontend: { generatedDir: "" } } as any);
+    logger.stopSpinner(true, "Project DNA decrypted.");
+    
+    // 1. Dependency Management
     const deps = projectMap.mainDependencies;
-    if (!deps.includes("@tanstack/react-query") || !deps.includes("axios")) {
+    const required = ["@tanstack/react-query", "axios"];
+    const missing = required.filter(d => !deps.includes(d));
+
+    if (missing.length > 0) {
+        console.log(pc.yellow(`\n📦 Missing infrastructure: ${missing.join(", ")}`));
         const shouldInstall = await new Select({
-            message: `Recommended dependencies ${pc.yellow("@tanstack/react-query, axios")} are missing. Install?`,
-            choices: ['Yes (Install Now)', 'No (I will do it manually)']
+            message: `Would you like Binder to install these for you?`,
+            choices: ['Yes, install now (npm)', 'No, I will handle it']
         }).run();
         
         if (shouldInstall.startsWith('Yes')) {
-            logger.startSpinner(`Installing dependencies...`);
+            logger.startSpinner(`Installing ${missing.join(", ")}...`);
             try {
-                execSync(`npm install @tanstack/react-query axios`, { stdio: 'ignore' });
-                logger.stopSpinner(true, `Dependencies installed.`);
+                execSync(`npm install ${missing.join(" ")}`, { stdio: 'ignore' });
+                logger.stopSpinner(true, `Dependencies integrated.`);
             } catch (e) {
-                logger.stopSpinner(false, `Failed to install dependencies.`);
+                logger.stopSpinner(false, `Automatic installation failed. Please run 'npm install ${missing.join(" ")}' manually.`);
             }
         }
     }
 
     // 2. Schema Discovery
     let schemaPath = projectMap.tree.find(f => f.includes("openapi.json") || f.includes("swagger.json")) || "./openapi.json";
+    console.log(pc.cyan(`\n🔍 Schema Discovery:`));
     const schemaConfirm = await new Toggle({
-        message: `Detected schema at ${pc.cyan(schemaPath)}. Use this?`,
+        message: `Found schema at ${pc.bold(schemaPath)}. Use it?`,
         initial: true
     }).run();
     
@@ -80,16 +85,17 @@ program
         schemaPath = await pkg.prompt({
             type: 'input',
             name: 'path',
-            message: 'Enter path to your OpenAPI schema (local or URL):'
+            message: 'Enter path to your OpenAPI schema (Local path or URL):'
         }).then((r: any) => r.path);
     }
 
-    // 3. UI Template Discovery
+    // 3. UI Template Intelligence
     const hasSkeleton = projectMap.tree.some(f => f.toLowerCase().includes("skeleton"));
     let loadingTemplate = hasSkeleton ? "<Skeleton />" : "<div>Loading...</div>";
     
+    console.log(pc.cyan(`\n🎨 UI Intelligence:`));
     const uiConfirm = await new Toggle({
-        message: `Suggested loading template: ${pc.yellow(loadingTemplate)}. Use this?`,
+        message: `Suggested loading guard: ${pc.yellow(loadingTemplate)}. Accept?`,
         initial: true
     }).run();
 
@@ -97,10 +103,11 @@ program
         loadingTemplate = await pkg.prompt({
             type: 'input',
             name: 'val',
-            message: 'Enter custom loading JSX (e.g. <MySpinner />):'
+            message: 'Custom loading JSX (e.g. <Spinner />):'
         }).then((r: any) => r.val);
     }
 
+    // 4. Configuration Commit
     const configPath = resolve(process.cwd(), "binder.config.json");
     const defaultConfig = {
         backend: { 
@@ -116,29 +123,37 @@ program
     };
     
     writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
-    logger.success("\n✨ binder.config.json created successfully.");
-
-    console.log(pc.gray(divider));
-    logger.success("✔ BINDER INITIALIZED SUCCESSFULLY!");
-    logger.info("\n💡 NEXT STEPS:");
-    console.log(pc.white("  1. Run ") + pc.green("binder bind <file>") + pc.white(" to start migrating mocks.\n"));
+    
+    console.log(pc.gray(`\n${divider}`));
+    logger.success("✔ BINDER PROTOCOL INITIALIZED");
+    console.log(pc.white("\n  Next Command: ") + pc.bold(pc.green("binder bind <file>")));
+    console.log(pc.white("  Manual Override: ") + pc.bold(pc.cyan("binder bind <file> --interactive\n")));
   });
 
 program
-  .command("tutorial")
-  .description("Guide on how to use Binder")
+  .command("guide")
+  .alias("help")
+  .description("Comprehensive guide on Binder commands and workflow")
   .action(async () => {
     await revealLogo();
-    logger.box("BINDER WORKFLOW GUIDE", [
-      "1. INIT:   Run 'binder init' to auto-detect your project structure.",
-      "2. CONFIG: Check binder.config.json. We've auto-detected your schema and UI components.",
-      "3. BIND:   Run 'binder bind <file>' to swap mocks. Use --batch for directories.",
-      "4. REVIEW: For complex cases, Binder leaves TODOs. Follow the instructions in the comments.",
-      "5. CACHE:  Binder remembers your choices! The more you use it, the more it auto-binds."
-    ]);
-    console.log(pc.bold("\n💡 PRO TIPS:"));
-    console.log(pc.cyan("  --safe-only: ") + pc.white("Only auto-converts 100% safe patterns (Default)."));
-    console.log(pc.cyan("  --ignore:    ") + pc.white("Skip specific mocks if they are too complex."));
+    console.log(pc.bold(pc.cyan("\n📖 BINDER OPERATIONAL GUIDE\n")));
+    
+    const table = [
+        { Command: 'init', Purpose: 'Auto-detect project structure and setup config.' },
+        { Command: 'bind <path>', Purpose: 'Swap mocks with real API hooks (Auto/Human/TODO).' },
+        { Command: 'validate', Purpose: 'Verify schema and project health.' },
+        { Command: 'audit <path>', Purpose: 'Scan and catalog all mocks without changing code.' },
+        { Command: 'undo <file>', Purpose: 'Revert the last binding operation.' },
+        { Command: 'history', Purpose: 'View the timeline of all past bindings.' },
+        { Command: 'guide', Purpose: 'You are looking at it!' }
+    ];
+    
+    console.table(table);
+
+    console.log(pc.bold("\n💡 WORKFLOW TIPS:"));
+    console.log(pc.white("  • Use ") + pc.bold(pc.green("--interactive")) + pc.white(" to review complex architectural decisions."));
+    console.log(pc.white("  • Use ") + pc.bold(pc.yellow("--dry-run")) + pc.white(" to preview AST changes in the terminal."));
+    console.log(pc.white("  • Binder ") + pc.bold(pc.cyan("Self-Heals")) + pc.white(" using MCP if type checks fail after surgery."));
   });
 
 program
@@ -209,6 +224,14 @@ program
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.success(`\n✨ Binding complete in ${duration}s`);
+  });
+
+program
+  .command("validate")
+  .description("Validate project state and configuration")
+  .action(async () => {
+    const config = await loadConfig(program.opts().config);
+    await validateCommand(config);
   });
 
 program

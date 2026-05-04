@@ -59,6 +59,18 @@ export async function safeBind(
   };
 
   for (const mock of mocks) {
+    if (mock.type === 'msw_handler' || mock.type === 'mirage_handler') {
+        results.todos.push({
+          mock,
+          hook: 'N/A',
+          reason: 'Mock Server Handler detected',
+          todoComment: `/* TODO(BINDER): Detected ${mock.type.replace('_', ' ').toUpperCase()}. 
+Once the frontend components are bound to hooks, you should remove this handler from your mock server setup. */`
+        });
+        results.todo++;
+        continue;
+    }
+
     const usages = findAllUsages(mock.name, sourceFile);
     const drills = await tracePropDrilling(mock.name, sourceFile, project);
     
@@ -125,8 +137,14 @@ export async function safeBind(
               logger.warn(`  [Warning] Type check failed for auto-conversions in ${filePath}. Attempting self-heal...`);
               
               // Second pass self-heal with diagnostics
-              const diagnostics = check.errors?.map(e => e.message) || [];
-              const healed = await mcp.repair(filePath, rewritten, diagnostics);
+              const diagnostics = check.errors || [];
+              const healed = await mcp.repair({
+                  filePath,
+                  code: rewritten,
+                  mockName: filePlan.bindings[0]?.mockName || 'unknown',
+                  hookName: filePlan.bindings[0]?.hookName || 'unknown',
+                  diagnostics
+              });
               
               if (healed.success && healed.newCode) {
                 logger.success(`  [Heal] MCP successfully repaired surgery issues.`);
