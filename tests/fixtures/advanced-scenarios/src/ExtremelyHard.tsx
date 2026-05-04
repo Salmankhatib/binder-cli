@@ -19,7 +19,14 @@ export const HardComponent = () => {
   
   // Recursive tree walking - Extremely complex for AST
   const findNode = (id, nodes) => {
-    return nodes.find(n => n.id === id);
+    for (const node of nodes) {
+      if (node.id === id) return node;
+      if (node.children && node.children.length > 0) {
+        const found = findNode(id, node.children);
+        if (found) return found;
+      }
+    }
+    return null;
   };
 
   // Pattern: computed-chain -> Auto/Human (depends on complexity detection)

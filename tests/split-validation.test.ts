@@ -64,8 +64,6 @@ describe('Binder v1.0.0 Target Split Validation', () => {
           drills
         );
 
-        // console.log(`[Score] ${fileName} : ${mock.name} -> ${decision.type} (${(decision.confidence * 100).toFixed(1)}%) Reasoning: ${decision.reasoning.map(r => `${r.layer}:${r.score}`).join(', ')}`);
-
         results[decision.type]++;
         findings.push({ file: fileName, mock: mock.name, type: decision.type, confidence: decision.confidence });
       }

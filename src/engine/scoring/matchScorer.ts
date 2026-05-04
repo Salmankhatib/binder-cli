@@ -4,6 +4,7 @@ import { heuristicMatch } from '../../match/heuristicMatcher.js';
 import { semanticMatch } from '../../match/semanticMatcher.js';
 import { contextualMatch } from '../../match/contextualMatcher.js';
 import { SourceFile, Project } from 'ts-morph';
+import { UsageProfile } from '../../analyze/usageAnalyzer.js';
 
 export interface MatchScoreResult {
   score: number;
@@ -17,7 +18,8 @@ export class MatchScorer {
     mock: MockFinding,
     hookNames: string[],
     apiContent: string,
-    projectContext: ProjectContext
+    projectContext: ProjectContext,
+    usageProfile?: UsageProfile
   ): Promise<MatchScoreResult> {
     const hMatches = heuristicMatch([mock], hookNames, projectContext.filePath);
     
@@ -30,7 +32,7 @@ export class MatchScorer {
 
     // Contextual match needs a SourceFile instance
     const project = new Project({ useInMemoryFileSystem: true });
-    const sourceFile = project.createSourceFile('temp.tsx', ''); // Dummy, contextualMatch only uses it for dirname if needed
+    const sourceFile = project.createSourceFile('temp.tsx', ''); 
     const cMatches = contextualMatch(mock, projectContext.filePath, sourceFile, hookNames);
 
     // Ensemble scoring
@@ -39,8 +41,28 @@ export class MatchScorer {
       const h = hMatches.find(m => m?.hookName === name)?.confidence || 0;
       const s = sMatches.find(m => m?.hookName === name)?.confidence || 0;
       const c = cMatches.find(m => m.hookName === name)?.confidence || 0;
-      // BOOST: Ensemble favors the best signal. Increased weights.
-      scores[name] = Math.max(h, s * 0.95, c * 0.85); 
+      
+      // PRIORITY 2: Weighted Ensemble: 0.5*h + 0.3*s + 0.2*c
+      let weightedScore = (0.5 * h) + (0.3 * s) + (0.2 * c);
+
+      // PRIORITY 2: Negative Scoring / Penalties
+      if (usageProfile) {
+        if (usageProfile.patterns.includes('useState-init')) weightedScore *= 0.1; // 90% penalty
+        if (usageProfile.patterns.includes('useEffect-dep')) weightedScore *= 0.15; // 85% penalty
+        if (usageProfile.patterns.includes('prop-pass')) weightedScore *= 0.2; // 80% penalty
+        if (usageProfile.patterns.includes('method-call')) weightedScore *= 0.05; // 95% penalty
+        if (usageProfile.patterns.includes('imperative-dom')) weightedScore *= 0.02; // 98% penalty
+        
+        if (usageProfile.patterns.includes('render-only')) {
+            weightedScore *= 1.2; // 20% boost for clean cases
+        }
+        
+        if (usageProfile.patterns.includes('derived-data')) {
+            weightedScore *= 0.5; // 50% penalty to push to HUMAN
+        }
+      }
+
+      scores[name] = Math.min(weightedScore, 1.0);
     }
 
     const sorted = Object.entries(scores)

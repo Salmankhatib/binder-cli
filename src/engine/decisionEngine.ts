@@ -9,6 +9,8 @@ import { OptionsGenerator } from '../human/optionsGenerator.js';
 import { TodoGenerator } from '../patterns/todo/todoGenerator.js';
 import { LearningAccelerator } from '../learning/accelerator.js';
 import { Binding } from '../common/types.js';
+import { analyzeUsage } from '../analyze/usageAnalyzer.js';
+import { analyzePropDrillingRisk } from '../analyze/propAnalyzer.js';
 
 export class DecisionEngine {
   private patternScorer: PatternScorer;
@@ -41,13 +43,24 @@ export class DecisionEngine {
   ): Promise<Decision> {
     const chain: ReasoningChain[] = [];
 
-    // Add drill info to reasoning if present
+    // PRIORITY 1: Usage Pattern Analysis
+    const usageProfile = analyzeUsage(usages as any);
+    chain.push({
+        layer: 'project-context',
+        score: usageProfile.isDangerous ? 2 : 10,
+        maxScore: 10,
+        explanation: `Usage Analysis: ${usageProfile.explanation.join(' ')}`,
+        details: { patterns: usageProfile.patterns }
+    });
+
+    // PRIORITY 5: Cross-File Prop Detection
+    const propRisk = analyzePropDrillingRisk(drills);
     if (drills.length > 0) {
       chain.push({
         layer: 'project-context',
-        score: 10,
+        score: propRisk.isHighRisk ? 2 : 5, 
         maxScore: 10,
-        explanation: `Prop drilling detected across ${drills.length} levels.`,
+        explanation: propRisk.explanation,
         details: { drills }
       });
     }
@@ -63,10 +76,10 @@ export class DecisionEngine {
     });
 
     // Layer 2: Hook Match Quality (0-30 points)
-    const matchResult = await this.matchScorer.score(mock, hookNames, apiContent, projectContext);
+    const matchResult = await this.matchScorer.score(mock, hookNames, apiContent, projectContext, usageProfile);
     chain.push({
       layer: 'match',
-      score: matchResult.score,
+      score: matchResult.score, // Correctly scaled in MatchScorer
       maxScore: 30,
       explanation: matchResult.explanation,
       details: { bestHook: matchResult.bestHook, matchConfidence: matchResult.confidence }
@@ -84,9 +97,23 @@ export class DecisionEngine {
 
     // Layer 4: Project Context (0-10 points)
     const contextResult = this.contextScorer.score(mock, projectContext);
+    
+    // PRIORITY 5: Penalty for Prop Drilling
+    let contextScore = contextResult.score;
+    if (drills.length > 0) {
+        contextScore -= 5; // Penalty
+        chain.push({
+            layer: 'project-context',
+            score: -5,
+            maxScore: 0,
+            explanation: `Mock is prop-drilled into ${drills.length} components. Auto-binding may break the tree.`,
+            details: { drills }
+        });
+    }
+
     chain.push({
       layer: 'project-context',
-      score: contextResult.score,
+      score: Math.max(contextScore, 0),
       maxScore: 10,
       explanation: contextResult.explanation,
       details: { folderMatch: contextResult.folderMatch, styleMatch: contextResult.styleMatch }
@@ -94,7 +121,7 @@ export class DecisionEngine {
 
     const totalScore = chain.reduce((sum, c) => sum + c.score, 0);
     const maxScore = chain.reduce((sum, c) => sum + c.maxScore, 0);
-    const normalizedScore = (totalScore / maxScore) * 100;
+    const normalizedScore = Math.min(Math.max((totalScore / maxScore) * 100, 0), 100);
 
     // Layer 5: Learning (Boost if we've seen this exact signature before)
     const prediction = this.accelerator.predict({
@@ -136,7 +163,8 @@ export class DecisionEngine {
     // 1. High total score (>= 55)
     // 2. Very safe pattern + any match
     // 3. Strong Auto pattern + any match (>= 30 pattern score)
-    const shouldAuto = isAutoPattern && (
+    // 4. NOT dangerous (no useState-init, useEffect-dep, prop-pass etc)
+    const shouldAuto = isAutoPattern && !usageProfile.isDangerous && !propRisk.isHighRisk && (
         finalScore >= 55 || 
         (isVerySafePattern && hasMatch) ||
         (patternResult.score >= 30 && hasMatch)

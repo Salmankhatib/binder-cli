@@ -65,6 +65,8 @@ import { MockWithLogicPattern } from './human/mockWithLogic.js';
 import { TodoPattern } from './todo/base.js';
 import { SideEffectMockPattern } from './todo/sideEffectMock.js';
 import { PerformanceCriticalPattern } from './todo/performanceCritical.js';
+import { RecursionDetectionPattern } from './todo/recursionDetection.js';
+import { ClassDetectionPattern } from './todo/classDetection.js';
 
 export interface PatternMatch {
   patternName: string;
@@ -85,7 +87,6 @@ export class PatternRegistry {
       new DirectAssignmentPattern(),
       new SimpleMapPattern(),
       new InlineUseQueryPattern(),
-      new PropPassingPattern(),
       new DeterministicTransformsPattern(),
       new DestructuredAssignmentPattern(),
       new ArrayLiteralSpreadPattern(),
@@ -94,16 +95,12 @@ export class PatternRegistry {
       new LengthCheckPattern(),
       new IncludesCheckPattern(),
       new EverySomePattern(),
-      new ReduceAccumulatorPattern(),
-      new UseMemoDependencyPattern(),
       new GuardEarlyReturnPattern(),
       new FormDefaultsPattern(),
-      new SlicePaginationPattern(),
       new FindByIdPattern(),
       new StorybookArgsPattern(),
       new TestMockProviderPattern(),
       new ReturnDirectPattern(),
-      new ComputedChainPattern(),
       new ChartDataTransformPattern(),
       new EffectInitOnlyPattern(),
       new UtilityTransformPattern(),
@@ -114,19 +111,12 @@ export class PatternRegistry {
       new GroupByStaticPattern(),
       new UniqueByKeyPattern(),
       new TableColumnMapPattern(),
-      new UseCallbackParamPattern(),
       new MergeHooksPattern(),
       new PropToHookPattern(),
-      new UseStateMockInitPattern(),
       new AlreadyGuardedPattern(),
       new SafeSpreadPropsPattern(),
       new ArrayAtIndexPattern(),
       new OptionalChainPattern(),
-      new DependencyArrayPattern(),
-      new DefaultParameterPattern(),
-      new ComputedDerivativePattern(),
-      new SimpleFilterPattern(),
-      new SimpleSortPattern(),
     ];
 
     this.humanPatterns = [
@@ -143,11 +133,24 @@ export class PatternRegistry {
       new ConditionalFeatureFlagPattern(),
       new AuthorizationEmbeddedPattern(),
       new MockWithLogicPattern(),
+      new SlicePaginationPattern() as any,
+      new SimpleFilterPattern() as any,
+      new ReduceAccumulatorPattern() as any,
+      new SimpleSortPattern() as any,
+      new ComputedChainPattern() as any,
+      new DefaultParameterPattern() as any,
+      new ComputedDerivativePattern() as any,
     ];
 
     this.todoPatterns = [
       new SideEffectMockPattern(),
       new PerformanceCriticalPattern(),
+      new RecursionDetectionPattern(),
+      new ClassDetectionPattern(),
+      new UseStateMockInitPattern() as any,
+      new PropPassingPattern() as any,
+      new UseMemoDependencyPattern() as any,
+      new UseCallbackParamPattern() as any,
     ];
   }
 

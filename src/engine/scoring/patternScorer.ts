@@ -44,7 +44,13 @@ export class PatternScorer {
     }
 
     // Find best match
-    const sortedMatches = matches.sort((a: any, b: any) => b.confidence - a.confidence);
+    const sortedMatches = matches.sort((a: any, b: any) => {
+        // Preference 1: Confidence
+        if (Math.abs(b.confidence - a.confidence) > 0.05) return b.confidence - a.confidence;
+        // Preference 2: Category (Todo > Human > Auto for safety)
+        const catMap = { todo: 3, human: 2, auto: 1 };
+        return catMap[b.category] - catMap[a.category];
+    });
     
     // Check if any usage matches a TODO pattern (Safety First)
     const todoMatch = matches.find((m: any) => m.category === 'todo');
@@ -61,10 +67,8 @@ export class PatternScorer {
     }
 
     // PRIORITY: Human patterns override Auto patterns ONLY if they are truly ambiguous.
-    // Some human patterns like 'pagination-strategy' or 'search-strategy' are critical.
-    // Others might be less so.
     const bestAutoMatch = sortedMatches.find((m: any) => m.category === 'auto');
-    const humanMatch = matches.find((m: any) => m.category === 'human');
+    const humanMatch = sortedMatches.find((m: any) => m.category === 'human');
     
     let targetMatch = sortedMatches[0];
     if (bestAutoMatch && humanMatch) {

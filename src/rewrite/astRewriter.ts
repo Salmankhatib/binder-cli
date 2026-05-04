@@ -157,6 +157,9 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
           applyTestWrapper(body, binding, sourceFile, adapter);
           break;
         default:
+          // Pass templates from plan to default strategy
+          (binding as any).loadingTemplate = plan.loadingTemplate;
+          (binding as any).errorTemplate = plan.errorTemplate;
           applyDefaultStrategy(body, binding, sourceFile, adapter);
           break;
       }

@@ -30,8 +30,13 @@ export function applyDefaultStrategy(
   
   // 5. Add loading/error guards if configured
   if (!isMutation && binding.loadingStrategy === 'early-return-skeleton') {
-    const loadingTemplate = `<div>Loading ${hookVar}...</div>`;
+    const loadingTemplate = (binding as any).loadingTemplate || `<div>Loading ${hookVar}...</div>`;
     insertStatementAfter(body, declaration, `if (${hookVar}Loading) return ${loadingTemplate};`);
+  }
+  
+  if (!isMutation && binding.errorStrategy === 'early-return-error') {
+    const errorTemplate = (binding as any).errorTemplate || `<div>Error loading ${hookVar}</div>`;
+    insertStatementAfter(body, declaration, `if (${hookVar}Error) return ${errorTemplate};`);
   }
 }
 
