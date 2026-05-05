@@ -14,18 +14,47 @@ export interface UsageContext {
 
 export function findAllUsages(mockName: string, sourceFile: any): UsageContext[] {
   const usages: UsageContext[] = [];
-  
-  const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
+  const processedIdentifiers = new Set<Identifier>();
+  const queue: Identifier[] = [];
+
+  // Find initial mock occurrences
+  const initial = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
     .filter((id: Identifier) => id.getText() === mockName);
   
-  for (const id of identifiers) {
+  queue.push(...initial);
+
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (processedIdentifiers.has(id)) continue;
+    processedIdentifiers.add(id);
+
     const parent = id.getParent();
     
-    // Skip the declaration identifier itself
+    // 1. Trace assignments: const data = MOCK; -> follow 'data'
+    if (Node.isVariableDeclaration(parent) && parent.getInitializer() === id) {
+        const nameNode = parent.getNameNode();
+        if (Node.isIdentifier(nameNode)) {
+            // Follow references of the new variable
+            const refs = nameNode.findReferencesAsNodes().filter(r => Node.isIdentifier(r)) as Identifier[];
+            queue.push(...refs);
+        } else if (Node.isObjectBindingPattern(nameNode) || Node.isArrayBindingPattern(nameNode)) {
+            // Destructuring: follow each element
+            nameNode.getElements().forEach(el => {
+                const innerName = Node.isBindingElement(el) ? el.getNameNode() : null;
+                if (innerName && Node.isIdentifier(innerName)) {
+                    const refs = innerName.findReferencesAsNodes().filter(r => Node.isIdentifier(r)) as Identifier[];
+                    queue.push(...refs);
+                }
+            });
+        }
+        continue; // Don't count the declaration site itself as a usage for rendering/logic
+    }
+
+    // 2. Skip the declaration of the mock itself (if local)
     if (Node.isVariableDeclaration(parent) && parent.getNameNode() === id) {
         continue;
     }
-    
+
     const grandparent = parent?.getParent();
     
     usages.push({
