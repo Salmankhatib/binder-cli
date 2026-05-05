@@ -56,12 +56,19 @@ export function extractTransformations(id: Identifier): string[] {
   const transforms: string[] = [];
   let current = id.getParent();
   
-  while (current && Node.isPropertyAccessExpression(current)) {
-    transforms.push(current.getName());
+  // Follow property accesses and calls
+  while (current) {
+    if (Node.isPropertyAccessExpression(current)) {
+      transforms.push(current.getName());
+    } else if (Node.isCallExpression(current)) {
+        // Keep going up
+    } else {
+        break;
+    }
     current = current.getParent();
   }
   
-  return transforms.reverse();
+  return Array.from(new Set(transforms));
 }
 
 export function isInConditional(id: Identifier): boolean {

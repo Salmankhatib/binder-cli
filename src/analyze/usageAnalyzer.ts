@@ -59,10 +59,14 @@ export function analyzeUsage(usages: UsageContext[]): UsageProfile {
     }
 
     // 3. Prop passing
-    if (parent?.getKind() === SyntaxKind.JsxAttribute || parent?.getKind() === SyntaxKind.JsxExpression) {
-        // If it's inside a JsxAttribute value or a JsxExpression in children
+    if (parent?.getKind() === SyntaxKind.JsxAttribute) {
         patterns.add('prop-pass');
-        explanations.push('Mock is passed as a JSX prop to a child component.');
+        explanations.push('Mock is passed as a JSX attribute.');
+    } else if (parent?.getKind() === SyntaxKind.JsxExpression && !Node.isPropertyAccessExpression(usage.node.getParent())) {
+        // If it's a direct identifier in a JsxExpression, e.g. {MOCK_USER}
+        // but NOT if it's part of a chain like {MOCK_USER.name} or {MOCK_USERS.map(...)}
+        patterns.add('prop-pass');
+        explanations.push('Mock is passed directly into a JSX expression.');
     }
 
     // 4. Method calls (class or object methods)
