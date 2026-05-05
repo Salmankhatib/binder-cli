@@ -139,13 +139,13 @@ program
     console.log(pc.bold(pc.cyan("\n📖 BINDER OPERATIONAL GUIDE\n")));
     
     const table = [
-        { Command: 'init', Purpose: 'Auto-detect project structure and setup config.' },
-        { Command: 'bind <path>', Purpose: 'Swap mocks with real API hooks (Auto/Human/TODO).' },
-        { Command: 'validate', Purpose: 'Verify schema and project health.' },
-        { Command: 'audit <path>', Purpose: 'Scan and catalog all mocks without changing code.' },
-        { Command: 'undo <file>', Purpose: 'Revert the last binding operation.' },
-        { Command: 'history', Purpose: 'View the timeline of all past bindings.' },
-        { Command: 'guide', Purpose: 'You are looking at it!' }
+        { Command: 'init', Purpose: 'Setup your project: installs dependencies and auto-detects schema.' },
+        { Command: 'bind <path>', Purpose: 'Perform the surgical swap of mocks for real API hooks.' },
+        { Command: 'validate', Purpose: 'Pre-flight check: verify schema health and configuration alignment.' },
+        { Command: 'audit <path>', Purpose: 'Dry-run analysis: inventory all mocks and predict results.' },
+        { Command: 'undo <file>', Purpose: 'The safety net: Revert the last operation on a specific file.' },
+        { Command: 'history', Purpose: 'Binding timeline: View all past operations and timestamps.' },
+        { Command: 'guide', Purpose: 'The operational manual you are reading.' }
     ];
     
     console.table(table);
@@ -164,6 +164,7 @@ program
   .option("--dry-run", "Preview changes without writing files", false)
   .option("--generate-tests", "Auto-generate Vitest compatibility tests", false)
   .option("--auto-only", "Only auto-convert 100% safe matches", false)
+  .option("--repo", "Full repository sweep: propagate matches across the entire project", false)
   .option("--ignore <variables>", "Comma-separated list of mock variables to ignore")
   .option("--only <variables>", "Comma-separated list of mock variables to exclusively target")
   .action(async (targetPath, options) => {
@@ -186,6 +187,9 @@ program
       : [absTarget];
 
     const { safeBind } = await import("./orchestrator/safeBind.js");
+    const { propagateMatches } = await import("./orchestrator/propagator.js");
+
+    const sessionSuccesses: Array<{ mockName: string, hookName: string }> = [];
 
     for (const file of files) {
       logger.system(`\n>>> Analyzing: ${pc.bold(file)}`);
@@ -209,17 +213,38 @@ program
               createBackup(file);
               writeFileSync(file, bindResults.rewrittenCode);
               logger.success(`✔ Applied changes to ${file} (${bindResults.auto} auto, ${bindResults.human} human, ${bindResults.todo} TODOs).`);
+              
+              // Track for propagation
+              sessionSuccesses.push(...bindResults.successes);
           }
       }
 
       if (bindResults.todos.length > 0) {
-        // Handle remaining TODOs (those not resolved by human)
         for (const res of bindResults.todos) {
-            // Append TODO comments to the file
-            // Simplified: we should ideally insert them near the mock site
             logger.info(`  [TODO] ${res.mock.name}: ${res.reason}`);
         }
       }
+    }
+
+    // POST-SESSION PROPAGATION
+    if (!options.dryRun && sessionSuccesses.length > 0) {
+        const absoluteProcessedFiles = files.map(f => resolve(f));
+        const remainingFiles = projectMap.tree
+            .map(f => resolve(process.cwd(), f))
+            .filter(f => f.endsWith('.tsx') && !absoluteProcessedFiles.includes(f));
+        
+        let shouldPropagate = options.repo;
+        if (!shouldPropagate && remainingFiles.length > 0) {
+            const confirm = await new Toggle({
+                message: `Binder found ${sessionSuccesses.length} successful matches. Scan the rest of the project for these exact mocks?`,
+                initial: true
+            }).run();
+            shouldPropagate = confirm;
+        }
+
+        if (shouldPropagate && remainingFiles.length > 0) {
+            await propagateMatches(sessionSuccesses, config, remainingFiles);
+        }
     }
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);

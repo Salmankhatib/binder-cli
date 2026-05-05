@@ -3,6 +3,7 @@ import { Identifier, Node } from 'ts-morph';
 import { Binding } from '../common/types.js';
 import { MockFinding } from '../scan/mockScanner.js';
 import { UsageContext as Usage } from '../analysis/usageFinder.js';
+import { RepositoryImpactMap } from '../analysis/globalIndex.js';
 
 export { MockFinding, Usage };
 
@@ -13,6 +14,7 @@ export interface ProjectContext {
   dependencies: string[];
   detectedStyle: string;
   tsConfigPath: string | null;
+  impactMap?: RepositoryImpactMap;
 }
 
 export interface ReasoningChain {

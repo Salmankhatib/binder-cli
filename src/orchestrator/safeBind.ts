@@ -9,6 +9,7 @@ import { DecisionEngine } from '../engine/decisionEngine.js';
 import { SessionManager } from '../human/sessionManager.js';
 import { findAllUsages } from '../analysis/usageFinder.js';
 import { tracePropDrilling } from '../analysis/propTracer.js';
+import { buildRepositoryImpactMap } from '../analysis/globalIndex.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
 import type { BindingPlan, Binding } from '../common/types.js';
@@ -27,7 +28,8 @@ export async function safeBind(
     todo: 0,
     skip: 0,
     rewrittenCode: null as string | null,
-    todos: [] as Array<{mock: MockFinding, hook: string, reason: string, todoComment: string}>
+    todos: [] as Array<{mock: MockFinding, hook: string, reason: string, todoComment: string}>,
+    successes: [] as Array<{ mockName: string, hookName: string }>
   };
 
   const decisionEngine = new DecisionEngine();
@@ -42,6 +44,11 @@ export async function safeBind(
   
   const sourceFile = project.addSourceFileAtPath(filePath);
   const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
+
+  // PRIORITY A: Project-Wide Symbol Index
+  logger.startSpinner("Building project-wide symbol impact map...");
+  const impactMap = await buildRepositoryImpactMap(project);
+  logger.stopSpinner(true, "Impact map ready.");
   
   const projectContext: ProjectContext = {
     filePath,
@@ -49,7 +56,8 @@ export async function safeBind(
     imports: sourceFile.getImportDeclarations().map(i => i.getModuleSpecifierValue()),
     dependencies: [], 
     detectedStyle: config.frontend.loadingTemplate ? 'Skeleton' : 'default',
-    tsConfigPath: tsConfigPath
+    tsConfigPath: tsConfigPath,
+    impactMap: impactMap
   };
 
   const filePlan: BindingPlan = {
@@ -86,6 +94,7 @@ Once the frontend components are bound to hooks, you should remove this handler 
     if (decision.type === 'auto') {
       logger.success(`  [Auto] ${mock.name} -> ${decision.binding?.hookName} (${(decision.confidence * 100).toFixed(0)}%)`);
       filePlan.bindings.push(decision.binding!);
+      results.successes.push({ mockName: mock.name, hookName: decision.binding!.hookName });
       results.auto++;
     } else if (decision.type === 'human' && options.interactive) {
       const { choice, apply } = await sessionManager.resolveHumanDecision(mock, decision);
@@ -95,6 +104,7 @@ Once the frontend components are bound to hooks, you should remove this handler 
           strategy: choice.id
         };
         filePlan.bindings.push(binding);
+        results.successes.push({ mockName: mock.name, hookName: binding.hookName });
         results.human++;
       } else {
         results.todo++;
@@ -133,6 +143,11 @@ Once the frontend components are bound to hooks, you should remove this handler 
           
           if (check.passed) {
               results.rewrittenCode = rewritten;
+              filePlan.bindings.forEach(b => {
+                  saveBinding(filePath, b.mockName, { hookName: b.hookName });
+                  const usages = findAllUsages(b.mockName, sourceFile);
+                  usages.forEach(u => recordPatternSuccess(u.structuralSignature, b.strategy || 'default'));
+              });
           } else {
               logger.warn(`  [Warning] Type check failed for auto-conversions in ${filePath}. Attempting self-heal...`);
               
@@ -185,59 +200,6 @@ Once the frontend components are bound to hooks, you should remove this handler 
 }
 
 function insertTodoComment(sourceFile: any, mock: MockFinding, comment: string) {
-  const line = mock.line;
-  const pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, 0);
-  const node = sourceFile.getDescendantAtPos(pos);
-  if (node) {
-    const parent = node.getParentWhile(n => n.getStartLineNumber() === line) || node;
-    parent.replaceWithText(`${comment}\n${parent.getText()}`);
-  }
-}
-
-function findNearestTsConfig(startDir: string): string | null {
-  let current = resolve(startDir);
-  while (current !== dirname(current)) {
-    const p = join(current, 'tsconfig.json');
-    if (existsSync(p)) return p;
-    current = dirname(current);
-  }
-  return null;
-}
-        results.todo++;
-    }
-  }
-
-  // 5. TRANSACTIONAL REWRITE
-  if (filePlan.bindings.length > 0) {
-      try {
-          let rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
-          rewritten = await mcp.autoFix(filePath, rewritten);
-          const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
-          
-          if (check.passed) {
-              results.rewrittenCode = rewritten;
-              results.auto = filePlan.bindings.length;
-              filePlan.bindings.forEach(b => {
-                  saveBinding(filePath, b.mockName, { hookName: b.hookName });
-                  const usages = findAllUsages(b.mockName, sourceFile);
-                  usages.forEach(u => recordPatternSuccess(u.structuralSignature, b.strategy || 'default'));
-                  if (options.generateTests) generateCompatibilityTest(filePath, b, config.frontend.generatedDir);
-              });
-          } else {
-              for (const binding of filePlan.bindings) {
-                  results.todos.push({
-                      mock: mocks.find(m => m.name === binding.mockName)!,
-                      hook: binding.hookName,
-                      reason: 'type-check-failure',
-                      todoComment: `/* TODO(BINDER): Auto-conversion failed. Manual review required. */`
-                  });
-              }
-              results.todo += filePlan.bindings.length;
-          }
-      } catch (e: any) {
-          logger.error(`Surgery failed: ${e.message}`);
-      }
-  }
 
   if (results.todos.length > 0) {
       const targetFile = results.rewrittenCode ? project.createSourceFile(filePath + '.tmp', results.rewrittenCode, { overwrite: true }) : sourceFile;

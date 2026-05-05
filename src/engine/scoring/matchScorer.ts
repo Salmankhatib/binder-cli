@@ -62,6 +62,13 @@ export class MatchScorer {
         }
       }
 
+      // PRIORITY A: Global Frequency Boost
+      const frequency = projectContext.impactMap?.hookUsageFrequency[name] || 0;
+      if (frequency > 5) {
+          // If the hook is used in many files, it's a safer bet
+          weightedScore += 0.1;
+      }
+
       scores[name] = Math.min(weightedScore, 1.0);
     }
 

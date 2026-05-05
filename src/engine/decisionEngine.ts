@@ -133,12 +133,13 @@ export class DecisionEngine {
 
     let finalScore = normalizedScore;
     if (prediction) {
-      finalScore += 10;
+      // SIGNIFICANT BOOST: 1.0 confidence for exact name matches from cache
+      finalScore = 100; 
       chain.push({
         layer: 'semantic', 
         score: 10,
         maxScore: 10,
-        explanation: `Learned pattern detected: ${prediction.choice}`,
+        explanation: `Learned pattern detected: ${prediction.choice}. Force auto-convert.`,
         details: { prediction }
       });
     }
@@ -174,7 +175,7 @@ export class DecisionEngine {
       // AUTO: All green or strongly patterned
       const binding: Binding = {
         mockName: mock.name,
-        hookName: matchResult.bestHook,
+        hookName: prediction?.choice || matchResult.bestHook,
         confidence: finalScore / 100,
         actionType: this.inferActionType(mock, usages),
         strategy: patternResult.strategy,
