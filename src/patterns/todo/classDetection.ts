@@ -11,17 +11,29 @@ export class ClassDetectionPattern extends TodoPattern {
     let isClassInstance = false;
     
     // Check if the mock was initialized with 'new'
-    const decl = usage.node.getSymbol()?.getDeclarations()[0];
-    if (decl && Node.isVariableDeclaration(decl)) {
-        const init = decl.getInitializer();
-        if (init?.getKind() === SyntaxKind.NewExpression) {
-            isClassInstance = true;
+    try {
+        const decl = usage.node.getSymbol()?.getDeclarations()[0];
+        if (decl && Node.isVariableDeclaration(decl)) {
+            const init = decl.getInitializer();
+            if (init?.getKind() === SyntaxKind.NewExpression) {
+                isClassInstance = true;
+            }
         }
+    } catch (e) {
+        // Symbol resolution might fail in tests or isolated environments
     }
 
     // Check for method calls
     const isMethodCall = parent?.getKind() === SyntaxKind.PropertyAccessExpression && 
                         parent.getParent()?.getKind() === SyntaxKind.CallExpression;
+
+    if (isMethodCall) {
+        const methodName = parent.asKind(SyntaxKind.PropertyAccessExpression).getName();
+        const safeMethods = ['map', 'filter', 'reduce', 'find', 'some', 'every', 'slice', 'sort', 'includes', 'at', 'concat', 'flat', 'flatMap', 'reverse', 'forEach', 'length'];
+        if (safeMethods.includes(methodName)) {
+            return { matches: false, confidence: 0, reason: '' };
+        }
+    }
 
     if (isClassInstance || isMethodCall) {
         return {

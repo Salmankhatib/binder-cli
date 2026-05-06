@@ -66,25 +66,11 @@ export class PatternScorer {
         };
     }
 
-    // PRIORITY: Human patterns override Auto patterns ONLY if they are truly ambiguous.
+    const bestMatch = sortedMatches[0];
     const bestAutoMatch = sortedMatches.find((m: any) => m.category === 'auto');
-    const humanMatch = sortedMatches.find((m: any) => m.category === 'human');
-    
-    let targetMatch = sortedMatches[0];
-    if (bestAutoMatch && humanMatch) {
-        // If it's a very strong auto match (>= 0.9), and human match is not 'pagination' or 'mutation', go Auto.
-        const isCriticalHuman = humanMatch.patternName.includes('pagination') || 
-                               humanMatch.patternName.includes('mutation') ||
-                               humanMatch.patternName.includes('auth');
-        
-        if (bestAutoMatch.confidence >= 0.9 && !isCriticalHuman) {
-            targetMatch = bestAutoMatch;
-        } else if (bestAutoMatch.confidence > (humanMatch.confidence + 0.1)) {
-            targetMatch = bestAutoMatch;
-        } else {
-            targetMatch = humanMatch;
-        }
-    }
+
+    // If we have a strong auto match (>= 0.8), use it
+    const targetMatch = (bestAutoMatch && bestAutoMatch.confidence >= 0.8) ? bestAutoMatch : bestMatch;
     
     if (targetMatch.category === 'auto') {
       // Check if majority of usages match auto patterns
@@ -94,10 +80,11 @@ export class PatternScorer {
       
       const ratio = autoMatchesCount / usages.length;
       
-      // RELAXED: was 0.75, now 0.6
-      if (ratio >= 0.6 || (usages.length === 1 && autoMatchesCount === 1)) {
+      // PRODUCTION DISCIPLINE: was 0.5, now 0.8
+      // For Auto, we want near-perfect pattern matching across all usage sites.
+      if (ratio >= 0.8 || (usages.length === 1 && autoMatchesCount === 1)) {
         return {
-          score: 30 + (targetMatch.confidence * 10), // 30-40 range
+          score: 30 + (targetMatch.confidence * 10), 
           patternName: targetMatch.patternName,
           category: 'auto',
           isAuto: true,

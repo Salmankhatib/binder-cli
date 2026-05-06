@@ -12,6 +12,12 @@ export class OptionsGenerator {
     projectContext: ProjectContext,
     matchResult: any
   ): HumanOption[] {
+    const needsInput = matchResult.needsInput || false;
+
+    if (needsInput && projectContext.protocol === 'trpc') {
+        return this.generateTrpcInputOptions(mock, usages, projectContext, matchResult);
+    }
+
     switch (patternName) {
       case 'pagination-strategy':
         return this.generatePaginationOptions(mock, usages, projectContext, matchResult);
@@ -28,6 +34,26 @@ export class OptionsGenerator {
       default:
         return this.generateGenericOptions(mock, usages, projectContext, matchResult);
     }
+  }
+
+  private generateTrpcInputOptions(mock: MockFinding, usages: Usage[], context: ProjectContext, match: any): HumanOption[] {
+    return [
+      {
+        id: 'manual-input',
+        label: 'Manual Input Mapping',
+        description: `I matched "${match.bestHook}", but I can't find a matching variable for its input.`,
+        consequence: {
+          codeDiff: `+ // TODO: Manually provide input for ${match.bestHook}\n+ const { data } = trpc.${match.bestHook}.useQuery({ /* input here */ });`,
+          typeCheckResult: 'unknown',
+          performanceImpact: 'None.',
+          architecturalChange: 'Manual wiring required.',
+          filesModified: [context.filePath]
+        },
+        confidence: 0.5,
+        effortEstimate: 'low',
+        riskLevel: 'safe'
+      }
+    ];
   }
 
   private generatePaginationOptions(mock: MockFinding, usages: Usage[], context: ProjectContext, match: any): HumanOption[] {

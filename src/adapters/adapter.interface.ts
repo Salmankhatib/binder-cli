@@ -4,6 +4,7 @@ export interface DataLibraryAdapter {
   dataProperty: string;
   loadingProperty: string;
   errorProperty: string;
-  generateQueryCall(hookName: string): string;
+  generateQueryCall(hookName: string, input?: string): string;
+  generateMutationCall(hookName: string, template?: any): string;
   generateMemoCall(variable: string, transformer: string): string;
 }

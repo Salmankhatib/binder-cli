@@ -10,6 +10,9 @@ import { SessionManager } from '../human/sessionManager.js';
 import { findAllUsages } from '../analysis/usageFinder.js';
 import { tracePropDrilling } from '../analysis/propTracer.js';
 import { buildRepositoryImpactMap } from '../analysis/globalIndex.js';
+import { TrpcRouterAnalyzer, ProcedureInfo } from '../analysis/trpcAnalyzer.js';
+import { MutationAnalyzer, MutationTemplate } from '../analysis/mutationAnalyzer.js';
+import { HookIndexer } from '../analysis/hookIndexer.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
 import type { BindingPlan, Binding } from '../common/types.js';
@@ -43,12 +46,41 @@ export async function safeBind(
   });
   
   const sourceFile = project.addSourceFileAtPath(filePath);
-  const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
+  
+  let targetHooks = hookNames;
+  let apiContent = "";
+  let trpcProcedures: Map<string, ProcedureInfo> | undefined;
+
+  if (config.protocol === 'trpc' && config.backend.trpcAppRouterPath) {
+      const analyzer = new TrpcRouterAnalyzer(tsConfigPath || undefined);
+      trpcProcedures = await analyzer.analyze(resolve(config.backend.trpcAppRouterPath));
+      targetHooks = Array.from(trpcProcedures.keys());
+      
+      // Generate a mock api.ts content for the semantic matcher to digest
+      apiContent = Array.from(trpcProcedures.entries()).map(([path, info]) => {
+          return `export const ${path.replace(/\./g, '_')} = () => ({} as ${info.outputType});`;
+      }).join("\n");
+  } else {
+      const apiPath = join(config.frontend.generatedDir, "api.ts");
+      if (existsSync(apiPath)) {
+        apiContent = readFileSync(apiPath, "utf-8");
+        // If hookNames not provided or empty, scan them
+        if (!targetHooks || targetHooks.length === 0) {
+            targetHooks = [...apiContent.matchAll(/export (?:function|const) (use\w+)/g)].map(m => m[1]);
+        }
+      }
+  }
 
   // PRIORITY A: Project-Wide Symbol Index
   logger.startSpinner("Building project-wide symbol impact map...");
   const impactMap = await buildRepositoryImpactMap(project);
   logger.stopSpinner(true, "Impact map ready.");
+
+  const mutationAnalyzer = new MutationAnalyzer();
+  const mutationTemplates = await mutationAnalyzer.analyzeProject(project);
+
+  const hookIndexer = new HookIndexer();
+  const customHookWrappers = await hookIndexer.indexProject(project);
   
   const projectContext: ProjectContext = {
     filePath,
@@ -57,13 +89,17 @@ export async function safeBind(
     dependencies: [], 
     detectedStyle: config.frontend.loadingTemplate ? 'Skeleton' : 'default',
     tsConfigPath: tsConfigPath,
-    impactMap: impactMap
+    impactMap: impactMap,
+    protocol: config.protocol,
+    llm: config.llm
   };
 
   const filePlan: BindingPlan = {
       bindings: [],
       loadingTemplate: config.frontend.loadingTemplate,
-      errorTemplate: config.frontend.errorTemplate
+      errorTemplate: config.frontend.errorTemplate,
+      protocol: config.protocol,
+      trpcExportName: config.backend.trpcExportName
   };
 
   for (const mock of mocks) {
@@ -86,9 +122,12 @@ Once the frontend components are bound to hooks, you should remove this handler 
       mock, 
       usages as any, 
       projectContext, 
-      hookNames, 
+      targetHooks, 
       apiContent, 
-      drills
+      drills,
+      trpcProcedures,
+      mutationTemplates,
+      customHookWrappers
     );
 
     if (decision.type === 'auto') {
@@ -133,13 +172,20 @@ Once the frontend components are bound to hooks, you should remove this handler 
 
   // Transactional Rewrite & Validation
   if (filePlan.bindings.length > 0) {
+      // Phase 5.2: Batch/Parallel Query Detection
+      const queryBindings = filePlan.bindings.filter(b => b.actionType === 'READ');
+      if (queryBindings.length >= 2 && config.protocol === 'trpc') {
+          logger.info(`  [Optimization] Detected ${queryBindings.length} parallel queries. Suggesting batch mode.`);
+          // In the future, we could swap for trpc.useQueries()
+      }
+
       try {
           let rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
           
           // Self-healing layer: use MCP to fix immediate issues (imports, syntax, etc.)
           rewritten = await mcp.autoFix(filePath, rewritten);
           
-          const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
+          const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir, config.backend.trpcAppRouterPath);
           
           if (check.passed) {
               results.rewrittenCode = rewritten;
@@ -200,19 +246,6 @@ Once the frontend components are bound to hooks, you should remove this handler 
 }
 
 function insertTodoComment(sourceFile: any, mock: MockFinding, comment: string) {
-
-  if (results.todos.length > 0) {
-      const targetFile = results.rewrittenCode ? project.createSourceFile(filePath + '.tmp', results.rewrittenCode, { overwrite: true }) : sourceFile;
-      for (const t of results.todos) {
-          await insertTodoComment(targetFile, t.mock, t.todoComment);
-      }
-      results.rewrittenCode = targetFile.getFullText();
-  }
-
-  return results;
-}
-
-async function insertTodoComment(sourceFile: any, mock: MockFinding, comment: string) {
   const line = mock.line;
   // Find the node at the line
   const pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, 0);

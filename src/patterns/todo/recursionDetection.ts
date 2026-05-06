@@ -18,7 +18,16 @@ export class RecursionDetectionPattern extends TodoPattern {
                     (current.getKind() === SyntaxKind.VariableDeclaration ? (current as any).getNameNode().getText() : '');
         
         if (name) {
-            const body = (current as any).getBody?.() || (current as any).getInitializer?.().getBody?.();
+            let body: Node | undefined;
+            if (Node.isFunctionDeclaration(current)) {
+                body = current.getBody();
+            } else if (Node.isVariableDeclaration(current)) {
+                const init = current.getInitializer();
+                if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
+                    body = init.getBody();
+                }
+            }
+
             if (body) {
                 // Precise check: is there a CallExpression to 'name' inside 'body'?
                 const calls = body.getDescendantsOfKind(SyntaxKind.CallExpression);

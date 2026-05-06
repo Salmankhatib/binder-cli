@@ -60,13 +60,19 @@ export function analyzeUsage(usages: UsageContext[]): UsageProfile {
 
     // 3. Prop passing
     if (parent?.getKind() === SyntaxKind.JsxAttribute) {
+        // Direct attribute passing: <Comp user={MOCK_USER} />
         patterns.add('prop-pass');
         explanations.push('Mock is passed as a JSX attribute.');
     } else if (parent?.getKind() === SyntaxKind.JsxExpression && !Node.isPropertyAccessExpression(usage.node.getParent())) {
         // If it's a direct identifier in a JsxExpression, e.g. {MOCK_USER}
-        // but NOT if it's part of a chain like {MOCK_USER.name} or {MOCK_USERS.map(...)}
-        patterns.add('prop-pass');
-        explanations.push('Mock is passed directly into a JSX expression.');
+        // but ONLY if it's not inside a map callback or similar
+        const isCallbackParam = usage.node.getFirstAncestorByKind(SyntaxKind.ArrowFunction) || 
+                               usage.node.getFirstAncestorByKind(SyntaxKind.FunctionExpression);
+        
+        if (!isCallbackParam) {
+            patterns.add('prop-pass');
+            explanations.push('Mock is passed directly into a JSX expression.');
+        }
     }
 
     // 4. Method calls (class or object methods)
@@ -110,6 +116,12 @@ export function analyzeUsage(usages: UsageContext[]): UsageProfile {
         patterns.add('derived-data');
         explanations.push('Mock is part of a derived data chain (.filter().map() etc).');
     }
+
+    // 9. Mutation Pattern
+    if (usage.isMutation) {
+        patterns.add('mutation-setter');
+        explanations.push('Mock is used in a state setter/mutation pattern.');
+    }
   }
 
   const hasComplexPattern = patterns.has('useState-init') || 
@@ -124,7 +136,12 @@ export function analyzeUsage(usages: UsageContext[]): UsageProfile {
   }
 
   const dangerousPatterns: UsagePattern[] = ['useState-init', 'useEffect-dep', 'method-call', 'imperative-dom'];
-  const isDangerous = Array.from(patterns).some(p => dangerousPatterns.includes(p));
+  let isDangerous = Array.from(patterns).some(p => dangerousPatterns.includes(p));
+
+  // If it's a known handled pattern, it's not "dangerous" for auto-binding anymore
+  if (patterns.has('mutation-setter') || patterns.has('subscription-refresh')) {
+      isDangerous = false;
+  }
 
   return {
     patterns: Array.from(patterns),

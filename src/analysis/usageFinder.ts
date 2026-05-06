@@ -6,9 +6,11 @@ export interface UsageContext {
   parent: Node;
   grandparent: Node;
   transformations: string[];
+  transformationExpression?: string; // The actual code chain: .filter(...).map(...)
   hasConditional: boolean;
   isInJsx: boolean;
   isInCallback: boolean;
+  isMutation: boolean; // NEW: true if it looks like a setter call or data modification
   structuralSignature: string; // The "DNA" of this usage
 }
 
@@ -47,7 +49,26 @@ export function findAllUsages(mockName: string, sourceFile: any): UsageContext[]
                 }
             });
         }
-        continue; // Don't count the declaration site itself as a usage for rendering/logic
+        continue; 
+    }
+
+    // 1.5 Trace useState: const [data, setData] = useState(MOCK) -> follow 'setData'
+    if (Node.isCallExpression(parent) && parent.getExpression().getText() === 'useState') {
+        const varDecl = parent.getFirstAncestorByKind(SyntaxKind.VariableDeclaration);
+        if (varDecl) {
+            const nameNode = varDecl.getNameNode();
+            if (Node.isArrayBindingPattern(nameNode)) {
+                const elements = nameNode.getElements();
+                // element[0] is the data, element[1] is the setter
+                elements.forEach((el, index) => {
+                    const node = Node.isBindingElement(el) ? el.getNameNode() : null;
+                    if (node && Node.isIdentifier(node)) {
+                        const refs = node.findReferencesAsNodes().filter(r => Node.isIdentifier(r)) as Identifier[];
+                        queue.push(...refs);
+                    }
+                });
+            }
+        }
     }
 
     // 2. Skip the declaration of the mock itself (if local)
@@ -62,14 +83,38 @@ export function findAllUsages(mockName: string, sourceFile: any): UsageContext[]
       parent: parent!,
       grandparent: grandparent!,
       transformations: extractTransformations(id),
+      transformationExpression: extractTransformationExpression(id),
       hasConditional: isInConditional(id),
       isInJsx: isInsideJsx(id),
       isInCallback: isInsideCallback(id),
+      isMutation: isMutationPattern(id),
       structuralSignature: generateSignature(id)
     });
   }
   
   return usages;
+}
+
+export function isMutationPattern(id: Identifier): boolean {
+    const parent = id.getParent();
+    
+    // 1. useState setter pattern: setUsers([...users, newUser])
+    if (Node.isCallExpression(parent)) {
+        const expr = parent.getExpression();
+        if (Node.isIdentifier(expr) && expr.getText().startsWith('set')) {
+            return true;
+        }
+    }
+
+    // 2. Spread in setter: setUsers([...MOCK_USERS])
+    if (Node.isSpreadElement(parent) || Node.isSpreadAssignment(parent)) {
+        const grand = parent.getParent();
+        if (Node.isCallExpression(grand) && grand.getExpression().getText().startsWith('set')) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 export function generateSignature(id: Identifier): string {
@@ -79,6 +124,32 @@ export function generateSignature(id: Identifier): string {
   
   // This string represents the logical "neighborhood" of the mock
   return `${lineage}[${siblingKinds}]`;
+}
+
+export function extractTransformationExpression(id: Identifier): string {
+    let current: Node | undefined = id.getParent();
+    let lastTransformationNode: Node | undefined;
+
+    while (current) {
+        if (Node.isPropertyAccessExpression(current) || Node.isCallExpression(current)) {
+            lastTransformationNode = current;
+            current = current.getParent();
+        } else {
+            break;
+        }
+    }
+
+    if (lastTransformationNode) {
+        const fullText = lastTransformationNode.getText();
+        const idText = id.getText();
+        // Remove the identifier itself from the start (e.g., "MOCK_USERS.filter(...)" -> ".filter(...)")
+        if (fullText.startsWith(idText)) {
+            return fullText.slice(idText.length);
+        }
+        return fullText;
+    }
+
+    return "";
 }
 
 export function extractTransformations(id: Identifier): string[] {

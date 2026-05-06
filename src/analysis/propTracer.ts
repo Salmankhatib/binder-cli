@@ -11,10 +11,14 @@ export interface PropDrillResult {
 export async function tracePropDrilling(
   mockName: string,
   sourceFile: any,
-  project: Project
+  project: Project,
+  depth: number = 0,
+  maxDepth: number = 5,
+  visited: Set<string> = new Set()
 ): Promise<PropDrillResult[]> {
   const results: PropDrillResult[] = [];
-  
+  if (depth >= maxDepth) return results;
+
   const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
     .filter((id: Identifier) => id.getText() === mockName);
 
@@ -32,14 +36,20 @@ export async function tracePropDrilling(
     
     // Find component definition across project
     let targetFile = 'unknown';
+    let targetSourceFile = null;
     try {
         const definitions = (openingEl as any).getTagNameNode().getDefinitions();
         if (definitions && definitions.length > 0) {
             targetFile = definitions[0].getSourceFile().getFilePath();
+            targetSourceFile = project.getSourceFile(targetFile);
         }
     } catch (e) {
         // Fallback for isolated files
     }
+
+    const drillId = `${sourceFile.getFilePath()}->${targetFile}:${propName}`;
+    if (visited.has(drillId)) continue;
+    visited.add(drillId);
 
     results.push({
         sourceFile: sourceFile.getFilePath(),
@@ -47,6 +57,13 @@ export async function tracePropDrilling(
         propName,
         componentName
     });
+
+    // Recursively trace the prop inside the target file
+    if (targetSourceFile && targetFile !== 'unknown') {
+        // Find the prop usage in the target component
+        const nextDrills = await tracePropDrilling(propName, targetSourceFile, project, depth + 1, maxDepth, visited);
+        results.push(...nextDrills);
+    }
   }
   
   return results;

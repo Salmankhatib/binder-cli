@@ -1,9 +1,8 @@
-// src/rewrite/strategies/lazyInitialize.ts
 import { Block, SourceFile, SyntaxKind, Node } from 'ts-morph';
 import { DataLibraryAdapter } from '../../adapters/adapter.interface.js';
 import { Binding } from '../../common/types.js';
 
-export function applyLazyInitialize(
+export function applySubscriptionBind(
   body: Block,
   binding: Binding,
   sourceFile: SourceFile,
@@ -11,18 +10,21 @@ export function applyLazyInitialize(
 ): void {
   const hookVar = binding.mockName.replace(/^(MOCK_|FAKE_|STUB_|DUMMY_|SAMPLE_|TEST_)/i, '').toLowerCase();
   
-  const hookCall = adapter.generateQueryCall(binding.hookName, binding.inferredInput);
-  const hookDecl = `const { ${adapter.dataProperty}: ${hookVar}Data } = ${hookCall};`;
+  // 1. Inject the useSubscription hook
+  const hookCall = adapter.generateQueryCall(binding.hookName, binding.inferredInput).replace('useQuery', 'useSubscription');
+  const declaration = `const { data: ${hookVar} } = ${hookCall};`;
   
-  insertAfterLastHook(body, hookDecl);
-  
-  // Find the useState that was using the mock
+  insertAfterLastHook(body, declaration);
+
+  // 2. Find and remove real-time mock side effects (setInterval, socket.on)
   body.getDescendantsOfKind(SyntaxKind.CallExpression)
-    .filter(c => c.getExpression().getText() === 'useState')
+    .filter(c => {
+        const text = c.getExpression().getText();
+        return text === 'setInterval' || text === 'setTimeout' || text.includes('socket.on');
+    })
     .forEach(call => {
-        const args = call.getArguments();
-        if (args.length > 0 && args[0].getText() === hookVar) {
-            args[0].replaceWithText(`${hookVar}Data || []`);
+        if (call.getText().includes(binding.mockName)) {
+            call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement)?.remove();
         }
     });
 }

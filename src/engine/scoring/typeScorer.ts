@@ -21,7 +21,10 @@ export class TypeScorer {
     const project = new Project({ useInMemoryFileSystem: true });
     const apiFile = project.createSourceFile('api.ts', apiContent);
     
-    const hook = apiFile.getFunction(bestHook) || apiFile.getVariableDeclaration(bestHook);
+    const hook = apiFile.getFunction(bestHook) || 
+                 apiFile.getVariableDeclaration(bestHook) ||
+                 apiFile.getFunction(bestHook.replace(/\./g, '_')) ||
+                 apiFile.getVariableDeclaration(bestHook.replace(/\./g, '_'));
     if (!hook) {
       return {
         score: 5,
@@ -42,12 +45,17 @@ export class TypeScorer {
     let dataType = hookType;
     const dataProp = hookType.getProperty('data');
     if (dataProp) {
-        dataType = project.getTypeChecker().getTypeOfSymbolAtLocation(dataProp, hook);
+        dataType = project.getTypeChecker().getTypeOfSymbolAtLocation(dataProp, hook.getNameNode());
     }
 
-    const hookKeys = dataType.isArray() 
-      ? this.extractKeysFromArray(dataType)
-      : dataType.getApparentProperties().map(p => p.getName());
+    // If it's an array, get keys from the element type
+    let finalType = dataType;
+    if (dataType.isArray()) {
+        const elementType = dataType.getArrayElementType();
+        if (elementType) finalType = elementType;
+    }
+
+    const hookKeys = finalType.getApparentProperties().map(p => p.getName());
 
     // Fix: If both are arrays of primitives, they are fully compatible
     const isPrimitiveArray = (type: any) => {

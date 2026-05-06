@@ -15,6 +15,8 @@ export interface ProjectContext {
   detectedStyle: string;
   tsConfigPath: string | null;
   impactMap?: RepositoryImpactMap;
+  protocol?: 'rest' | 'trpc';
+  llm?: any;
 }
 
 export interface ReasoningChain {

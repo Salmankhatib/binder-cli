@@ -12,7 +12,7 @@ export function applyWrapInUseMemo(
   const hookVar = binding.mockName.replace(/^(MOCK_|FAKE_|STUB_|DUMMY_|SAMPLE_|TEST_)/i, '').toLowerCase();
   
   // Generate hook call
-  const hookCall = adapter.generateQueryCall(binding.hookName);
+  const hookCall = adapter.generateQueryCall(binding.hookName, binding.inferredInput);
   
   // Insert hook declaration
   const hookDecl = `const { ${adapter.dataProperty}: ${hookVar}Raw, ${adapter.loadingProperty}: ${hookVar}Loading, ${adapter.errorProperty}: ${hookVar}Error } = ${hookCall};`;
@@ -20,8 +20,9 @@ export function applyWrapInUseMemo(
   insertAfterLastHook(body, hookDecl);
   
   // Generate useMemo for transformations
-  const transforms = binding.transformer || 'map(x => x)';
-  const memoDecl = `const ${hookVar} = ${adapter.generateMemoCall(`${hookVar}Raw`, transforms)};`;
+  const transforms = binding.transformationExpression || (binding.transformer ? `.${binding.transformer}` : '.map(x => x)');
+  const fallback = transforms.includes('map') || transforms.includes('filter') ? ' ?? []' : '';
+  const memoDecl = `const ${hookVar} = useMemo(() => ${hookVar}Raw${transforms}${fallback}, [${hookVar}Raw]);`;
   
   insertAfterLastHook(body, memoDecl);
   

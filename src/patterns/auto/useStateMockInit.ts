@@ -16,7 +16,7 @@ export class UseStateMockInitPattern extends AutoPattern {
     }
 
     // Heuristic: check if the setter is used (if we have access to the file or via analysis)
-    // For now, we'll assume if it's a mock init, we might want to migrate it to useQuery
+    // If it's a mock init, we want to migrate it to useQuery
     return {
       matches: true,
       confidence: 0.85,

@@ -11,7 +11,7 @@ export function applyClientPagination(
 ): void {
   const hookVar = binding.mockName.replace(/^(MOCK_|FAKE_|STUB_|DUMMY_|SAMPLE_|TEST_)/i, '').toLowerCase();
   
-  const hookCall = adapter.generateQueryCall(binding.hookName);
+  const hookCall = adapter.generateQueryCall(binding.hookName, binding.inferredInput);
   const hookDecl = `const { ${adapter.dataProperty}: ${hookVar}Raw } = ${hookCall};`;
   
   insertAfterLastHook(body, hookDecl);

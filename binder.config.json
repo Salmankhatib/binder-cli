@@ -1,11 +1,12 @@
 {
+  "protocol": "rest",
   "backend": {
-    "schemaPath": "./tests/fixtures/react-query-app/openapi.json",
+    "schemaPath": "./openapi.json",
     "url": "http://localhost:8000"
   },
   "frontend": {
-    "generatedDir": "./tests/fixtures/react-query-app/src/generated",
-    "loadingTemplate": "<div>Loading...</div>",
+    "generatedDir": "./src/generated",
+    "loadingTemplate": "",
     "errorTemplate": "<div>Error loading data</div>"
   },
   "orval": {

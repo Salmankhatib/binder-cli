@@ -15,12 +15,21 @@ export function applyDefaultStrategy(
   const isMutation = binding.actionType !== 'READ';
   
   // 2. Generate hook call
-  const hookCall = adapter.generateQueryCall(binding.hookName);
+  let hookCall = '';
+  if (isMutation) {
+    hookCall = adapter.generateMutationCall(binding.hookName, binding.mutationTemplate);
+  } else {
+    hookCall = adapter.generateQueryCall(binding.hookName, binding.inferredInput);
+  }
   
   // 3. Construct declaration
   let declaration = '';
   if (isMutation) {
     declaration = `const { mutate: ${hookVar} } = ${hookCall};`;
+    // If it's tRPC, we also need useUtils if there are invalidations
+    if (adapter.name === 'trpc' && binding.mutationTemplate?.invalidates.length) {
+        insertAfterLastHook(body, `const utils = ${binding.trpcExportName || 'trpc'}.useUtils();`);
+    }
   } else {
     declaration = `const { ${adapter.dataProperty}: ${hookVar}, ${adapter.loadingProperty}: ${hookVar}Loading, ${adapter.errorProperty}: ${hookVar}Error } = ${hookCall};`;
   }

@@ -22,19 +22,14 @@ export interface SemanticMatch {
 export function semanticMatch(
   mocks: MockFinding[],
   hooks: HookSignature[],
-  apiContent: string
+  apiContent: string,
+  trpcProcedures?: Map<string, any>
 ): SemanticMatch[] {
   logger.system('Running semantic shape matcher...');
   
   const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { jsx: 4 } });
   const apiFile = project.createSourceFile('api.ts', apiContent);
   
-  // FIX 5: Real API Discovery using AST
-  const allHooks = apiFile.getExportedDeclarations();
-  const hookFunctions = Array.from(allHooks.entries())
-    .filter(([name]) => name.startsWith('use'))
-    .map(([name, decls]) => ({ name, decl: decls[0] }));
-
   const matches: SemanticMatch[] = [];
 
   for (const mock of mocks) {
@@ -44,7 +39,31 @@ export function semanticMatch(
     let bestMatch: SemanticMatch | null = null;
 
     for (const hook of hooks) {
-      const hookReturnType = extractHookReturnType(apiFile, hook.name);
+      let hookReturnType: Type | null = null;
+
+      if (trpcProcedures && trpcProcedures.has(hook.name)) {
+          // Special handling for tRPC: create a temp file with the output type to get its properties
+          const proc = trpcProcedures.get(hook.name);
+          const tempFile = project.createSourceFile(`temp_${hook.name.replace(/\./g, '_')}.ts`, `type T = ${proc.outputType};`, { overwrite: true });
+          let typeAlias = tempFile.getTypeAlias('T')?.getType();
+          if (typeAlias) {
+              // If it's a function type (e.g. from useQuery definition), get its return type
+              const callSigs = typeAlias.getCallSignatures();
+              if (callSigs.length > 0) {
+                  typeAlias = callSigs[0].getReturnType();
+              }
+              // If it has a 'data' property, drill down (like React Query hooks)
+              const dataProp = typeAlias.getProperty('data');
+              if (dataProp) {
+                  hookReturnType = project.getTypeChecker().getTypeOfSymbolAtLocation(dataProp, tempFile.getTypeAlias('T')!.getNameNode());
+              } else {
+                  hookReturnType = typeAlias;
+              }
+          }
+      } else {
+          hookReturnType = extractHookReturnType(apiFile, hook.name);
+      }
+
       if (!hookReturnType) continue;
 
       const hookKeys = extractKeysFromType(hookReturnType);
@@ -72,10 +91,20 @@ export function semanticMatch(
 }
 
 function extractHookReturnType(apiFile: any, hookName: string): Type | null {
-  const hook = apiFile.getFunction(hookName) || apiFile.getVariableDeclaration(hookName);
+  const hook = apiFile.getFunction(hookName) || 
+               apiFile.getVariableDeclaration(hookName) ||
+               apiFile.getFunction(hookName.replace(/\./g, '_')) ||
+               apiFile.getVariableDeclaration(hookName.replace(/\./g, '_'));
   if (!hook) return null;
 
-  const type = hook.getType();
+  let type = hook.getType();
+  
+  // If it's a function/arrow function, get its return type
+  const callSignatures = type.getCallSignatures();
+  if (callSignatures.length > 0) {
+      type = callSignatures[0].getReturnType();
+  }
+
   // For React Query hooks, we need to drill down into the UseQueryResult
   const typeText = type.getText();
   if (typeText.includes('UseQueryResult') || typeText.includes('UseMutationResult')) {
@@ -84,6 +113,14 @@ function extractHookReturnType(apiFile: any, hookName: string): Type | null {
       return typeArgs[0]; // The TData type
     }
   }
+
+  // FALLBACK: If the hook returns an object with a 'data' property (standard RQ hook)
+  const dataProp = type.getProperty('data');
+  if (dataProp) {
+      const propType = (apiFile as SourceFile).getProject().getTypeChecker().getTypeOfSymbolAtLocation(dataProp, hook.getNameNode());
+      if (propType) return propType;
+  }
+
   return type;
 }
 

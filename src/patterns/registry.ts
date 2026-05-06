@@ -42,6 +42,8 @@ import { AlreadyGuardedPattern } from './auto/alreadyGuarded.js';
 import { SafeSpreadPropsPattern } from './auto/safeSpreadProps.js';
 import { ArrayAtIndexPattern } from './auto/arrayAtIndex.js';
 import { OptionalChainPattern } from './auto/optionalChain.js';
+import { MutationSetterPattern } from './auto/mutationSetter.js';
+import { SubscriptionRefreshPattern } from './auto/subscriptionRefresh.js';
 import { DependencyArrayPattern } from './auto/dependencyArray.js';
 import { DefaultParameterPattern } from './auto/defaultParameter.js';
 import { ComputedDerivativePattern } from './auto/computedDerivative.js';
@@ -117,6 +119,9 @@ export class PatternRegistry {
       new SafeSpreadPropsPattern(),
       new ArrayAtIndexPattern(),
       new OptionalChainPattern(),
+      new MutationSetterPattern(),
+      new SubscriptionRefreshPattern(),
+      new UseStateMockInitPattern(),
     ];
 
     this.humanPatterns = [
@@ -140,6 +145,9 @@ export class PatternRegistry {
       new ComputedChainPattern() as any,
       new DefaultParameterPattern() as any,
       new ComputedDerivativePattern() as any,
+      new PropPassingPattern() as any,
+      new UseMemoDependencyPattern() as any,
+      new UseCallbackParamPattern() as any,
     ];
 
     this.todoPatterns = [
@@ -147,10 +155,6 @@ export class PatternRegistry {
       new PerformanceCriticalPattern(),
       new RecursionDetectionPattern(),
       new ClassDetectionPattern(),
-      new UseStateMockInitPattern() as any,
-      new PropPassingPattern() as any,
-      new UseMemoDependencyPattern() as any,
-      new UseCallbackParamPattern() as any,
     ];
   }
 

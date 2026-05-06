@@ -11,7 +11,7 @@ export interface TestResult {
   diagnostics: Diagnostic[];
 }
 
-export function runTypeCheck(filePath: string, code: string, generatedDir?: string): TestResult {
+export function runTypeCheck(filePath: string, code: string, generatedDir?: string, trpcAppRouterPath?: string): TestResult {
   const tsConfigPath = findNearestTsConfig(dirname(filePath));
   
   const project = new Project({
@@ -27,6 +27,14 @@ export function runTypeCheck(filePath: string, code: string, generatedDir?: stri
       strict: false,
     },
   });
+
+  if (trpcAppRouterPath && existsSync(trpcAppRouterPath)) {
+      try {
+          project.addSourceFileAtPath(trpcAppRouterPath);
+      } catch (e) {
+          logger.debug(`tRPC: Failed to load AppRouter for type check: ${trpcAppRouterPath}`);
+      }
+  }
 
   if (!tsConfigPath) {
     // Fallback stubs only if no tsconfig found
@@ -74,19 +82,45 @@ export function runTypeCheck(filePath: string, code: string, generatedDir?: stri
       return (text as string).includes('property') || (text as string).includes('JSX');
   });
 
-  const diagnostics: Diagnostic[] = filteredDiags.map(d => ({
-    message: typeof d.getMessageText() === 'string' ? (d.getMessageText() as string) : (d.getMessageText() as any).getMessageText(),
-    code: d.getCode(),
-    line: d.getLineNumber() || 0,
-    character: d.getStart() || 0,
-    file: d.getSourceFile()?.getFilePath() || ''
-  }));
+  // Cross-boundary type safety check
+  const crossBoundaryIssues = checkCrossBoundaryImports(sourceFile);
+  
+  const diagnostics: Diagnostic[] = [
+      ...filteredDiags.map(d => ({
+        message: typeof d.getMessageText() === 'string' ? (d.getMessageText() as string) : (d.getMessageText() as any).getMessageText(),
+        code: d.getCode(),
+        line: d.getLineNumber() || 0,
+        character: d.getStart() || 0,
+        file: d.getSourceFile()?.getFilePath() || ''
+      })),
+      ...crossBoundaryIssues
+  ];
 
   const errors = diagnostics.map(d => d.message);
   
   errors.forEach(text => logger.system(`  [Type Error] ${text}`));
   
   return { layer: 'type-check', passed: errors.length === 0, errors, diagnostics };
+}
+
+function checkCrossBoundaryImports(sourceFile: any): Diagnostic[] {
+    const issues: Diagnostic[] = [];
+    const imports = sourceFile.getImportDeclarations();
+    const serverRegex = /\/server\/|\/api\/server/i;
+
+    for (const imp of imports) {
+        const specifier = imp.getModuleSpecifierValue();
+        if (serverRegex.test(specifier)) {
+            issues.push({
+                message: `Cross-boundary safety violation: Client file imports from server directory (${specifier}). This may leak server-only logic to the client bundle.`,
+                code: 9999,
+                line: imp.getStartLineNumber(),
+                character: 0,
+                file: sourceFile.getFilePath()
+            });
+        }
+    }
+    return issues;
 }
 
 function addFilesRecursively(project: Project, dir: string) {

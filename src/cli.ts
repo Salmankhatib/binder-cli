@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import { Command } from "commander";
 import pc from "picocolors";
 import pkg from "enquirer";
@@ -50,9 +50,19 @@ program
     const projectMap = await discoveryPhase({ backend: { schemaPath: "", url: "" }, frontend: { generatedDir: "" } } as any);
     logger.stopSpinner(true, "Project DNA decrypted.");
     
+    // 0. Protocol Intelligence
+    const protocolChoice = await new Select({
+        message: "Which protocol does your project use for data fetching?",
+        choices: [
+            { name: 'rest', message: 'REST API (Standard OpenAPI)' },
+            { name: 'trpc', message: 'tRPC (End-to-end Typesafe)' }
+        ]
+    }).run();
+    const isTrpc = protocolChoice === 'trpc';
+
     // 1. Dependency Management
     const deps = projectMap.mainDependencies;
-    const required = ["@tanstack/react-query", "axios"];
+    const required = isTrpc ? ["@trpc/client", "@trpc/react-query", "@tanstack/react-query"] : ["@tanstack/react-query", "axios"];
     const missing = required.filter(d => !deps.includes(d));
 
     if (missing.length > 0) {
@@ -63,30 +73,50 @@ program
         }).run();
         
         if (shouldInstall.startsWith('Yes')) {
-            logger.startSpinner(`Installing ${missing.join(", ")}...`);
+            logger.startSpinner(`Installing dependencies...`);
             try {
                 execSync(`npm install ${missing.join(" ")}`, { stdio: 'ignore' });
                 logger.stopSpinner(true, `Dependencies integrated.`);
             } catch (e) {
-                logger.stopSpinner(false, `Automatic installation failed. Please run 'npm install ${missing.join(" ")}' manually.`);
+                logger.stopSpinner(false, `Automatic installation failed.`);
             }
         }
     }
 
-    // 2. Schema Discovery
-    let schemaPath = projectMap.tree.find(f => f.includes("openapi.json") || f.includes("swagger.json")) || "./openapi.json";
-    console.log(pc.cyan(`\n🔍 Schema Discovery:`));
-    const schemaConfirm = await new Toggle({
-        message: `Found schema at ${pc.bold(schemaPath)}. Use it?`,
-        initial: true
-    }).run();
+    // 2. Schema / Router Discovery
+    let schemaPath = "";
+    let trpcRouterPath = "";
     
-    if (!schemaConfirm) {
-        schemaPath = await pkg.prompt({
-            type: 'input',
-            name: 'path',
-            message: 'Enter path to your OpenAPI schema (Local path or URL):'
-        }).then((r: any) => r.path);
+    if (isTrpc) {
+        trpcRouterPath = projectMap.tree.find(f => f.includes("root.ts") || f.includes("router.ts") || f.includes("AppRouter")) || "./src/server/routers/root.ts";
+        console.log(pc.cyan(`\n🔍 tRPC Router Discovery:`));
+        const routerConfirm = await new Toggle({
+            message: `Detected AppRouter definition at ${pc.bold(trpcRouterPath)}. Use it?`,
+            initial: true
+        }).run();
+        
+        if (!routerConfirm) {
+            trpcRouterPath = await pkg.prompt({
+                type: 'input',
+                name: 'path',
+                message: 'Enter path to your AppRouter type definition:'
+            }).then((r: any) => r.path);
+        }
+    } else {
+        schemaPath = projectMap.tree.find(f => f.includes("openapi.json") || f.includes("swagger.json")) || "./openapi.json";
+        console.log(pc.cyan(`\n🔍 Schema Discovery:`));
+        const schemaConfirm = await new Toggle({
+            message: `Found schema at ${pc.bold(schemaPath)}. Use it?`,
+            initial: true
+        }).run();
+        
+        if (!schemaConfirm) {
+            schemaPath = await pkg.prompt({
+                type: 'input',
+                name: 'path',
+                message: 'Enter path to your OpenAPI schema (Local path or URL):'
+            }).then((r: any) => r.path);
+        }
     }
 
     // 3. UI Template Intelligence
@@ -107,11 +137,47 @@ program
         }).then((r: any) => r.val);
     }
 
-    // 4. Configuration Commit
+    // 4. LLM Fallback Configuration
+    console.log(pc.cyan(`\n🧠 Advanced Intelligence (Optional):`));
+    console.log(pc.gray(`  Binder operates 100% locally with high precision by default.`));
+    console.log(pc.gray(`  However, for extremely messy legacy code, it can optionally use an LLM as a fallback.`));
+    const llmConfirm = await new Toggle({
+        message: `Enable optional LLM Fallback?`,
+        initial: false
+    }).run();
+
+    let llmConfig: any = { enabled: false };
+    if (llmConfirm) {
+        const providerChoice = await new Select({
+            message: "Select your preferred LLM Provider:",
+            choices: ['ollama', 'openai', 'anthropic', 'google', 'deepseek']
+        }).run();
+
+        const modelChoice = await pkg.prompt({
+            type: 'input',
+            name: 'model',
+            message: `Enter model name (e.g. ${providerChoice === 'ollama' ? 'llama3' : 'gpt-4o'}):`
+        }).then((r: any) => r.model);
+
+        llmConfig = {
+            enabled: true,
+            provider: providerChoice,
+            model: modelChoice || (providerChoice === 'ollama' ? 'llama3' : 'default')
+        };
+
+        if (providerChoice === 'ollama') {
+            llmConfig.host = 'http://localhost:11434/api/generate';
+        }
+    }
+
+    // 5. Configuration Commit
     const configPath = resolve(process.cwd(), "binder.config.json");
     const defaultConfig = {
+        protocol: protocolChoice,
         backend: { 
-            schemaPath: schemaPath, 
+            schemaPath: isTrpc ? undefined : schemaPath, 
+            trpcAppRouterPath: isTrpc ? trpcRouterPath : undefined,
+            trpcExportName: isTrpc ? "trpc" : undefined,
             url: "http://localhost:8000" 
         },
         frontend: { 
@@ -119,7 +185,8 @@ program
             loadingTemplate: loadingTemplate,
             errorTemplate: "<div>Error loading data</div>"
         },
-        orval: { client: "react-query" }
+        orval: isTrpc ? undefined : { client: "react-query" },
+        llm: llmConfig
     };
     
     writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));

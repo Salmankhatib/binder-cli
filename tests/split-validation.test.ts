@@ -23,7 +23,10 @@ describe('Binder v1.0.0 Target Split Validation', () => {
       '../../advanced-scenarios/src/GoodProduction.tsx',
       '../../advanced-scenarios/src/AmateurMessy.tsx',
       '../../advanced-scenarios/src/ExtremelyHard.tsx',
-      '../../advanced-scenarios/src/CleanProduction2.tsx'
+      '../../advanced-scenarios/src/CleanProduction2.tsx',
+      '../../advanced-scenarios/src/MutationTest.tsx',
+      '../../advanced-scenarios/src/ProductionWrapper.tsx',
+      '../../advanced-scenarios/src/SubscriptionHard.tsx'
     ];
     const results = { auto: 0, human: 0, todo: 0 };
     const findings: any[] = [];
