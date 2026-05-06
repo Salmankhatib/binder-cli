@@ -1,8 +1,14 @@
 # 🔗 Binder: The Autonomous Contract Engine
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/skhatib/Binder-Public/main/assets/logo.png" alt="Binder Logo" width="200" />
-</p>
+        ╔═════════════════════════════════════════════════════╗
+        ║    ██████╗ ██╗███╗   ██╗██████╗ ███████╗██████╗     ║
+        ║    ██╔══██╗██║████╗  ██║██╔══██╗██╔════╝██╔══██╗    ║
+        ║    ██████╔╝██║██╔██╗ ██║██║  ██║█████╗  ██████╔╝    ║
+        ║    ██╔══██╗██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗    ║
+        ║    ██████╔╝██║██║ ╚████║██████╔╝███████╗██║  ██║    ║
+        ║    ╚═════╝ ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═     ║
+        ╚═════════════════════════════════════════════════════╝
+                    MOCK-TO-API BINDING ENGINE
 
 **Binder** is a CLI platform that bridges the gap between your Frontend and Backend. It automates the "plumbing" of connecting React frontends to real APIs while ensuring your contracts never drift.
 
