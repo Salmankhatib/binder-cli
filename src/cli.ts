@@ -1,4 +1,6 @@
-import "dotenv/config";
+import { versionNegotiation } from "./middleware/versionNegotiation.js";
+export { versionNegotiation };
+
 import { Command } from "commander";
 import pc from "picocolors";
 import pkg from "enquirer";
@@ -206,13 +208,18 @@ program
     console.log(pc.bold(pc.cyan("\n📖 BINDER OPERATIONAL GUIDE\n")));
     
     const table = [
-        { Command: 'init', Purpose: 'Setup your project: installs dependencies and auto-detects schema.' },
-        { Command: 'bind <path>', Purpose: 'Perform the surgical swap of mocks for real API hooks.' },
-        { Command: 'validate', Purpose: 'Pre-flight check: verify schema health and configuration alignment.' },
-        { Command: 'audit <path>', Purpose: 'Dry-run analysis: inventory all mocks and predict results.' },
-        { Command: 'undo <file>', Purpose: 'The safety net: Revert the last operation on a specific file.' },
-        { Command: 'history', Purpose: 'Binding timeline: View all past operations and timestamps.' },
-        { Command: 'guide', Purpose: 'The operational manual you are reading.' }
+        { Command: 'init', Purpose: 'Setup project DNA and automated protocols.' },
+        { Command: 'bind <path>', Purpose: 'Surgically swap mocks for real API hooks.' },
+        { Command: 'drift', Purpose: 'Deep field-level analysis of code vs schema.' },
+        { Command: 'watch', Purpose: 'Real-time local sentinel for contract health.' },
+        { Command: 'snapshot', Purpose: 'Capture an immutable record of contract state.' },
+        { Command: 'dashboard', Purpose: 'Generate cinematic report with rollback intelligence.' },
+        { Command: 'scaffold', Purpose: 'Generate UI components and hooks from OpenAPI.' },
+        { Command: 'deploy-guard', Purpose: 'CI check: abort deployment if unverified.' },
+        { Command: 'serve', Purpose: 'Host the live dashboard and version capabilities.' },
+        { Command: 'upgrade', Purpose: 'Analyze snapshots to generate migration plans.' },
+        { Command: 'undo', Purpose: 'Safety net: Revert the last surgical operation.' },
+        { Command: 'validate', Purpose: 'Verify project health and config alignment.' },
     ];
     
     console.table(table);
@@ -222,6 +229,83 @@ program
     console.log(pc.white("  • Use ") + pc.bold(pc.yellow("--dry-run")) + pc.white(" to preview AST changes in the terminal."));
     console.log(pc.white("  • Binder ") + pc.bold(pc.cyan("Self-Heals")) + pc.white(" using MCP if type checks fail after surgery."));
   });
+
+// Register new CLI commands – snapshot
+import { runSnapshot } from "./cli/snapshot.js";
+import { runUpgrade } from "./cli/upgrade.js";
+import { runDashboard } from "./cli/dashboard.js";
+import { runScaffold } from "./cli/scaffold.js";
+import { runWatch } from "./cli/watch.js";
+import { runDrift } from "./cli/drift.js";
+import { runDeployGuard } from "./cli/deployGuard.js";
+
+
+program
+  .command("snapshot")
+  .description("Create a Binder snapshot of repo state and OpenAPI hash")
+  .option("--status <type>", "Status of the contract (verified | failed)")
+  .action(async (opts) => {
+    await runSnapshot(opts);
+  });
+
+// Serve command – starts the Express version‑negotiation server
+import { startServer } from "./server/app.js";
+program
+  .command("serve")
+  .description("Run Binder auxiliary server (version negotiation & capabilities)")
+  .option("-p, --port <number>", "Port to listen on", "3000")
+  .action(async (opts) => {
+    const port = Number(opts.port);
+    startServer(port);
+    console.log(`Binder server started on http://localhost:${port}`);
+  });
+
+program
+  .command("upgrade")
+  .description("Analyze snapshots and generate a migration plan")
+  .action(async () => {
+    await runUpgrade();
+  });
+
+program
+  .command("dashboard")
+  .alias("map")
+  .description("Generate a visual compatibility dashboard with rollback intelligence")
+  .action(async () => {
+    await runDashboard();
+  });
+
+program
+  .command("scaffold <endpoint>")
+  .description("Generate frontend code from an OpenAPI endpoint")
+  .option("-p, --pattern <name>", "Pattern name from .binder/patterns/")
+  .option("-w, --write", "Write the generated component to disk", false)
+  .option("-o, --output <path>", "Output directory for the component", "src/components/generated")
+  .action(async (endpoint, options) => {
+    await runScaffold(endpoint, options);
+  });
+
+program
+  .command("watch")
+  .description("Real-time local sentinel: watch schema and source for drift")
+  .action(async () => {
+    await runWatch();
+  });
+
+program
+  .command("drift")
+  .description("Analyze live code vs schema for contract mismatches")
+  .action(async () => {
+    await runDrift();
+  });
+
+program
+  .command("deploy-guard")
+  .description("Verify deployment safety against the latest snapshot")
+  .action(async () => {
+    await runDeployGuard();
+  });
+
 
 program
   .command("bind <path>")

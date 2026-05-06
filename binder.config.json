@@ -1,15 +1,8 @@
 {
-  "protocol": "rest",
   "backend": {
-    "schemaPath": "./openapi.json",
-    "url": "http://localhost:8000"
+    "schemaPath": "tests/fixtures/driftSchema.json"
   },
   "frontend": {
-    "generatedDir": "./src/generated",
-    "loadingTemplate": "",
-    "errorTemplate": "<div>Error loading data</div>"
-  },
-  "orval": {
-    "client": "react-query"
+    "generatedDir": "./src/generated"
   }
 }

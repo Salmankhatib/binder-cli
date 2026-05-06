@@ -1,61 +1,62 @@
 # 📖 Binder User Manual
 
-Binder is a CLI helper that automates the boring parts of connecting a React frontend to an OpenAPI backend. It is designed to handle simple cases automatically and provide a structured workflow for complex ones.
+This manual provides a detailed walkthrough of all Binder commands and the recommended Enterprise workflow.
 
 ---
 
-## 🛠️ Getting Started
+## 🛠️ Command Reference
 
-### 1. Initialization
-Run `binder init` to set up your project. It will try to find your schema and UI components for you.
+### Core Binding
+| Command | Flag | Description |
+|:--- |:--- |:--- |
+| `binder bind <path>` | `--interactive` | Manually review and confirm every surgical swap. |
+| `binder bind <path>` | `--dry-run` | Preview AST changes in the terminal without saving. |
+| `binder bind <path>` | `--batch` | Process all files in a directory sequentially. |
+| `binder bind <path>` | `--repo` | Full project sweep: propagate confirmed matches globally. |
 
-### 2. Configuration
-The `binder.config.json` file controls the behavior:
-- `loadingTemplate`: Define your project's skeleton component here.
-- `mockDetection`: Customize how Binder finds mocks in your project.
-
-### 3. The Binding Process
-Run `binder bind <file>` to migrate a component.
-- **Safe Swaps**: Simple assignments are updated immediately.
-- **Complex logic**: If you use ternaries or multiple transforms, Binder may leave a `TODO` for you.
-
----
-
-## 🌟 How to use "TODO" comments
-
-Binder will often insert a block like this:
-```typescript
-/* TODO(BINDER): Manual Review Required
-   Error: Property 'name' does not exist on type 'ApiUser'
-   How to fix: ... 
-*/
-```
-**This is expected.** Binder acts as a compiler-aware assistant. Use these comments to quickly identify where the API and your UI don't perfectly align and apply your expertise to fix them.
-
----
-
-## 💻 Commands
-
+### Contract Management (The Sentinel)
 | Command | Description |
 |:--- |:--- |
-| `binder init` | Setup project infrastructure. |
-| `binder bind` | Start migration on file(s). |
-| `binder audit` | See all mocks without changing code. |
-| `binder tutorial` | Tips for a smooth migration. |
+| `binder drift` | Performs deep field-level comparison between code and schema. |
+| `binder watch` | Real-time local sentinel that alerts you of drift while you code. |
+| `binder snapshot` | Captures an immutable record of your API hash and Git state. |
+| `binder deploy-guard` | **CI Command**: Aborts deployment if the contract is unverified. |
 
-Command	Flag	Description
-bind <path>	--batch	Binds all files in the directory.
-bind <path>	--dry-run	Preview AST changes without saving.
-bind <path>	--with-integration	Perform live data-shape verification against the backend.
-bind <path>	--verbose	Output detailed step-by-step logic and type errors.
-validate		Scans project for any remaining unbound mocks.
-4. Robustness Verification
-I have fixed the build error related to the #! shebang and confirmed that npm run build now completes successfully. The tool is now a Professional Binding Engine ready to be integrated into any AI application building pipeline. It delivers verified, compiled, and type-safe code that is truly connected to your backend.
+### Governance & Visuals
+| Command | Description |
+|:--- |:--- |
+| `binder dashboard` | Generates a cinematic HTML report with rollback intelligence. |
+| `binder serve` | Hosts the dashboard and version capabilities for your team. |
+| `binder upgrade` | Analyzes snapshots to generate a step-by-step migration plan. |
 
-Command	Flag	Description
-bind <path>	--batch	Binds all files in the directory.
-bind <path>	--dry-run	Preview AST changes without saving.
-bind <path>	--with-integration	Perform live data-shape verification against the backend.
-bind <path>	--verbose	Output detailed step-by-step logic and type errors.
-validate		Scans project for any remaining unbound mocks.
-4. Robustness
+### Infrastructure
+| Command | Description |
+|:--- |:--- |
+| `binder init` | Interactive TUI to setup project structure and protocols. |
+| `binder scaffold` | Generates UI components and hooks from OpenAPI endpoints. |
+| `binder undo` | Reverts the last surgical operation on a file. |
+
+---
+
+## 🤖 CI/CD Integration
+
+Binder is designed to be the "Source of Truth" in your pipeline.
+
+### 1. The Pull Request Gatekeeper
+Add `binder drift` to your PR workflow. If a backend change renames a field that the frontend relies on, the build will fail.
+
+### 2. Automated PR Comments
+Binder can be configured to post comments on PRs:
+> ⚠️ **Contract Drift Detected**
+> I detected that `POST /api/users` has changed. Run `binder scaffold /users --write` to fix.
+
+### 3. Deployment Safety
+Run `binder deploy-guard` in your CD pipeline. It cross-references the current commit against the verified snapshots. If no verified snapshot exists for the current contract, the deployment is blocked.
+
+---
+
+## 🧠 Best Practices
+
+1. **Snapshots are Sacred**: Always run `binder snapshot` after a successful manual verification.
+2. **Interactive First**: Use `--interactive` on your first few files to train the Binder Learning Cache.
+3. **Template the Boring Stuff**: Spend 10 minutes setting up your `.binder/patterns/` to ensure `scaffold` matches your team's style.
