@@ -1,5 +1,7 @@
 # 🔗 Binder: The Sovereign Contract Engine
-```text
+```html
+<div align="center">
+<pre>
 ╔═════════════════════════════════════════════════════╗
 ║    ██████╗ ██╗███╗   ██╗██████╗ ███████╗██████╗     ║
 ║    ██╔══██╗██║████╗  ██║██╔══██╗██╔════╝██╔══██╗    ║
@@ -8,7 +10,9 @@
 ║    ██████╔╝██║██║ ╚████║██████╔╝███████╗██║  ██║    ║
 ║    ╚═════╝ ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═     ║
 ╚═════════════════════════════════════════════════════╝
-             MOCK-TO-API BINDING ENGINE
+             <b>MOCK-TO-API BINDING ENGINE</b>
+</pre>
+</div>
 ```
 
 **Binder** is a CLI tool and Dashboard platform that automates the most painful part of frontend development: 
