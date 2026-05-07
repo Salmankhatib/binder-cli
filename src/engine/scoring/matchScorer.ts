@@ -4,7 +4,7 @@ import { heuristicMatch } from '../../match/heuristicMatcher.js';
 import { semanticMatch } from '../../match/semanticMatcher.js';
 import { contextualMatch } from '../../match/contextualMatcher.js';
 import { SourceFile, Project } from 'ts-morph';
-import { UsageProfile } from '../../analyze/usageAnalyzer.js';
+import { UsageProfile } from '../../analysis/usageAnalyzer.js';
 
 export interface MatchScoreResult {
   score: number;
