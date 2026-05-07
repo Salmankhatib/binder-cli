@@ -20,13 +20,38 @@ export function generateComponent(schema: any, path: string, method: string, pat
 
   const hookName = operation.operationId ? `use${operation.operationId.charAt(0).toUpperCase() + operation.operationId.slice(1)}` : 'useUnknownMutation';
   const componentName = `${hookName.replace(/^use/, '')}Form`;
+  const zodSchemaName = `${hookName.replace(/^use/, '').charAt(0).toLowerCase() + hookName.replace(/^use/, '').slice(1)}Schema`;
+
+  const zodSchema = generateZodSchema(bodySchema);
+  const typeInference = `export type ${componentName}Input = z.infer<typeof ${zodSchemaName}>;`;
 
   let code = pattern.template
     .replace(/{{hookName}}/g, hookName)
     .replace(/{{componentName}}/g, componentName)
+    .replace(/{{zodSchemaName}}/g, zodSchemaName)
+    .replace(/{{zodSchema}}/g, zodSchema)
+    .replace(/{{typeInference}}/g, typeInference)
     .replace(/{{fields}}/g, fieldsHtml);
 
   return code;
+}
+
+export function generateZodSchema(bodySchema: any): string {
+  if (!bodySchema || !bodySchema.properties) return 'z.object({})';
+
+  const props = Object.keys(bodySchema.properties).map(key => {
+    const prop = bodySchema.properties[key];
+    let zodType = 'z.string()';
+    
+    if (prop.type === 'number') zodType = 'z.number()';
+    if (prop.type === 'boolean') zodType = 'z.boolean()';
+    if (prop.format === 'email') zodType = 'z.string().email()';
+    
+    const isRequired = bodySchema.required?.includes(key);
+    return `  ${key}: ${zodType}${isRequired ? '' : '.optional()'}`;
+  }).join(',\n');
+
+  return `z.object({\n${props}\n})`;
 }
 
 function generateField(name: string, prop: any): string {

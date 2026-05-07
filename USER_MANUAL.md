@@ -1,62 +1,76 @@
-# 📖 Binder User Manual
+# 📖 Binder User Manual: The Sentinel's Guide
 
-This manual provides a detailed walkthrough of all Binder commands and the recommended Enterprise workflow.
-
----
-
-## 🛠️ Command Reference
-
-### Core Binding
-| Command | Flag | Description |
-|:--- |:--- |:--- |
-| `binder bind <path>` | `--interactive` | Manually review and confirm every surgical swap. |
-| `binder bind <path>` | `--dry-run` | Preview AST changes in the terminal without saving. |
-| `binder bind <path>` | `--batch` | Process all files in a directory sequentially. |
-| `binder bind <path>` | `--repo` | Full project sweep: propagate confirmed matches globally. |
-
-### Contract Management (The Sentinel)
-| Command | Description |
-|:--- |:--- |
-| `binder drift` | Performs deep field-level comparison between code and schema. |
-| `binder watch` | Real-time local sentinel that alerts you of drift while you code. |
-| `binder snapshot` | Captures an immutable record of your API hash and Git state. |
-| `binder deploy-guard` | **CI Command**: Aborts deployment if the contract is unverified. |
-
-### Governance & Visuals
-| Command | Description |
-|:--- |:--- |
-| `binder dashboard` | Generates a cinematic HTML report with rollback intelligence. |
-| `binder serve` | Hosts the dashboard and version capabilities for your team. |
-| `binder upgrade` | Analyzes snapshots to generate a step-by-step migration plan. |
-
-### Infrastructure
-| Command | Description |
-|:--- |:--- |
-| `binder init` | Interactive TUI to setup project structure and protocols. |
-| `binder scaffold` | Generates UI components and hooks from OpenAPI endpoints. |
-| `binder undo` | Reverts the last surgical operation on a file. |
+Binder is a high-fidelity system for governing the contract between your Frontend and Backend. This manual covers every command from basic binding to enterprise-scale contract migration.
 
 ---
 
-## 🤖 CI/CD Integration
+## 🛠️ The "Big Three" Workflows
 
-Binder is designed to be the "Source of Truth" in your pipeline.
+### 1. The Surgical Swap (`binder bind`)
+**Use Case:** You have a file with mock data and want to connect it to a real API.
 
-### 1. The Pull Request Gatekeeper
-Add `binder drift` to your PR workflow. If a backend change renames a field that the frontend relies on, the build will fail.
+```bash
+binder bind src/components/UserTable.tsx --interactive
+```
+- **What happens:** Binder scans for mock arrays or objects, compares them to your OpenAPI/tRPC schema, and replaces them with the correct API hook.
+- **Flags:**
+    - `--interactive`: Recommended. Review and confirm every swap.
+    - `--dry-run`: Preview the code changes without saving.
+    - `--batch`: Process multiple files at once.
 
-### 2. Automated PR Comments
-Binder can be configured to post comments on PRs:
-> ⚠️ **Contract Drift Detected**
-> I detected that `POST /api/users` has changed. Run `binder scaffold /users --write` to fix.
+### 2. Autonomous Migration (`binder sync --apply`)
+**Use Case:** The backend team renamed a field in the API, and you don't want to hunt down every usage.
 
-### 3. Deployment Safety
-Run `binder deploy-guard` in your CD pipeline. It cross-references the current commit against the verified snapshots. If no verified snapshot exists for the current contract, the deployment is blocked.
+```bash
+binder sync --apply
+```
+- **What happens:** Binder compares your current schema against the last verified snapshot. If it detects a rename (e.g., `user_name` → `fullName`), it performs a **project-wide refactor** using AST surgery.
+- **Scope:** Updates components, hooks, state slices (Redux/Zustand), and Zod schemas.
+
+### 3. CI/CD Gatekeeping (`binder deploy-guard`)
+**Use Case:** Ensure no "broken" contracts ever reach production.
+
+```bash
+binder deploy-guard
+```
+- **What happens:** In your CI pipeline, Binder checks the current commit against the Snapshot Registry. If the current contract drift is unverified or failed, the command exits with `code 1`, blocking the deployment.
 
 ---
 
-## 🧠 Best Practices
+## 🏗️ Command Reference
 
-1. **Snapshots are Sacred**: Always run `binder snapshot` after a successful manual verification.
-2. **Interactive First**: Use `--interactive` on your first few files to train the Binder Learning Cache.
-3. **Template the Boring Stuff**: Spend 10 minutes setting up your `.binder/patterns/` to ensure `scaffold` matches your team's style.
+### Core Operations
+| Command | Description |
+|:--- |:--- |
+| `binder init` | Detects project DNA and sets up the Sentinel registry. |
+| `binder drift` | Deep field-level comparison between your code and the schema. |
+| `binder scaffold` | Generates Zod schemas + Hooks + UI from an API endpoint. |
+| `binder undo` | Transactional safety net: Reverts the last operation. |
+
+### Visual Governance
+| Command | Description |
+|:--- |:--- |
+| `binder dashboard` | Generates the visual report for your project. |
+| `binder serve` | Hosts the **Command Center** UI and version capabilities. |
+| `binder verify -t <tag>` | Manually cross-check compatibility with a specific backend version. |
+
+---
+
+## 🕹️ Using the Command Center
+Run `binder serve` to open the interactive Cockpit in your browser.
+
+1. **Drift Resolver**: View a list of all detected mismatches. Click **[Apply Fix]** to trigger the Migration Engine without leaving the browser.
+2. **Scaffold Map**: Browse all API endpoints. Click **[+] Scaffold** to instantly generate a new component into your project.
+3. **Time Machine**: Browse past contract states. If a release was buggy, click **Restore** to revert to the last stable contract version.
+
+---
+
+## 🤖 Advanced: Learning Cache
+Binder learns from your confirmations. When you confirm a match in `--interactive` mode, Binder saves that "Knowledge Link" in `.binder/cache.json`. The next time that same mock appears elsewhere, Binder will suggest the correct API hook with 99% confidence.
+
+---
+
+## 🛡️ Best Practices
+1. **Snapshot Early, Snapshot Often**: Run `binder snapshot` after every successful API integration.
+2. **Commit Your Registry**: Always commit the `.binder/snapshots/` directory so your team (and CI) shares the same source of truth.
+3. **Template Your Style**: Edit the files in `.binder/patterns/` to make sure `scaffold` generates code that matches your team's exact style.

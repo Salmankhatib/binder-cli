@@ -1,5 +1,5 @@
-import { writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from "fs";
+import { join, resolve } from "path";
 import { execSync } from "child_process";
 import { logger } from "../utils/logger.js";
 
@@ -15,8 +15,10 @@ export async function runSnapshot(options: { status?: 'verified' | 'failed' } = 
 
   const openapiPath = join(cwd, "openapi.json");
   let openapiHash = "";
+  let schema = null;
   if (existsSync(openapiPath)) {
-    // Simple SHA256 using openssl available on most dev machines.
+    const raw = readFileSync(openapiPath, "utf-8");
+    schema = JSON.parse(raw);
     const out = execSync(`openssl sha256 ${openapiPath}`).toString();
     openapiHash = out.split("=")[1].trim();
   }
@@ -28,6 +30,7 @@ export async function runSnapshot(options: { status?: 'verified' | 'failed' } = 
       commit: backendSha,
       version: process.env.BACKEND_VERSION || "unknown",
       openapiHash,
+      schema,
     },
     frontend: {
       commit: frontendSha,

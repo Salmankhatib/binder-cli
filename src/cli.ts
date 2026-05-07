@@ -238,6 +238,9 @@ import { runScaffold } from "./cli/scaffold.js";
 import { runWatch } from "./cli/watch.js";
 import { runDrift } from "./cli/drift.js";
 import { runDeployGuard } from "./cli/deployGuard.js";
+import { runVerify } from "./cli/verify.js";
+import { runSync } from "./cli/sync.js";
+import { runAutoPilot } from "./cli/autoPilot.js";
 
 
 program
@@ -304,6 +307,28 @@ program
   .description("Verify deployment safety against the latest snapshot")
   .action(async () => {
     await runDeployGuard();
+  });
+
+program
+  .command("verify")
+  .description("Cross-check compatibility with a specific snapshot tag")
+  .requiredOption("-t, --target <tag>", "Target snapshot tag or ID")
+  .action(async (opts) => {
+    await runVerify(opts);
+  });
+
+program
+  .command("sync")
+  .description("Pull latest schema and scan project for mocks")
+  .action(async () => {
+    await runSync();
+  });
+
+program
+  .command("auto-pilot")
+  .description("Execute full Binder workflow: sync -> drift -> snapshot")
+  .action(async () => {
+    await runAutoPilot();
   });
 
 
