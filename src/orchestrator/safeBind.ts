@@ -1,24 +1,22 @@
 // src/orchestrator/safeBind.ts
-import { Project, SyntaxKind } from 'ts-morph';
+import { Project, SyntaxKind, Node } from 'ts-morph';
 import { resolve, dirname, join } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
-import { safeRewrite } from '../rewrite/safeRewriter.js';
-import { heuristicMatch } from '../match/heuristicMatcher.js';
-import { semanticMatch } from '../match/semanticMatcher.js';
-import { contextualMatch } from '../match/contextualMatcher.js';
+import { existsSync, readFileSync } from 'fs';
 import { rewriteFile } from '../rewrite/astRewriter.js';
 import { logger } from '../utils/logger.js';
 import { runTypeCheck } from '../test/typeCheck.js';
-import { generateCompatibilityTest } from '../test/compatibilityTest.js';
-import { getCachedBinding, saveBinding, recordPatternSuccess } from '../utils/cache.js';
-import { BinderMCP } from '../mcp/client.js';
-import { findAllUsages, generateSignature } from '../analysis/usageFinder.js';
+import { DecisionEngine } from '../engine/decisionEngine.js';
+import { SessionManager } from '../human/sessionManager.js';
+import { findAllUsages } from '../analysis/usageFinder.js';
 import { tracePropDrilling } from '../analysis/propTracer.js';
-import { LearningEngine, calculateConfidence } from '../learning/engine.js';
-import { generateShapeRemapper } from '../rewrite/shapeRemapper.js';
+import { buildRepositoryImpactMap } from '../analysis/globalIndex.js';
+import { TrpcRouterAnalyzer, ProcedureInfo } from '../analysis/trpcAnalyzer.js';
+import { MutationAnalyzer, MutationTemplate } from '../analysis/mutationAnalyzer.js';
+import { HookIndexer } from '../analysis/hookIndexer.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
-import type { BindingPlan } from '../common/types.js';
+import type { BindingPlan, Binding } from '../common/types.js';
+import { ProjectContext } from '../engine/types.js';
 
 export async function safeBind(
   mocks: MockFinding[], 
@@ -29,15 +27,16 @@ export async function safeBind(
 ) {
   const results = {
     auto: 0,
+    human: 0,
     todo: 0,
     skip: 0,
     rewrittenCode: null as string | null,
-    todos: [] as Array<{mock: MockFinding, hook: string, reason: string, todoComment: string}>
+    todos: [] as Array<{mock: MockFinding, hook: string, reason: string, todoComment: string}>,
+    successes: [] as Array<{ mockName: string, hookName: string }>
   };
 
-  const mcp = new BinderMCP();
-  const engine = new LearningEngine();
-  await mcp.initialize(config);
+  const decisionEngine = new DecisionEngine();
+  const sessionManager = new SessionManager();
 
   const tsConfigPath = findNearestTsConfig(dirname(filePath));
   const project = new Project({
@@ -47,12 +46,60 @@ export async function safeBind(
   });
   
   const sourceFile = project.addSourceFileAtPath(filePath);
-  const apiContent = readFileSync(join(config.frontend.generatedDir, "api.ts"), "utf-8");
   
+  let targetHooks = hookNames;
+  let apiContent = "";
+  let trpcProcedures: Map<string, ProcedureInfo> | undefined;
+
+  if (config.protocol === 'trpc' && config.backend.trpcAppRouterPath) {
+      const analyzer = new TrpcRouterAnalyzer(tsConfigPath || undefined);
+      trpcProcedures = await analyzer.analyze(resolve(config.backend.trpcAppRouterPath));
+      targetHooks = Array.from(trpcProcedures.keys());
+      
+      // Generate a mock api.ts content for the semantic matcher to digest
+      apiContent = Array.from(trpcProcedures.entries()).map(([path, info]) => {
+          return `export const ${path.replace(/\./g, '_')} = () => ({} as ${info.outputType});`;
+      }).join("\n");
+  } else {
+      const apiPath = join(config.frontend.generatedDir, "api.ts");
+      if (existsSync(apiPath)) {
+        apiContent = readFileSync(apiPath, "utf-8");
+        // If hookNames not provided or empty, scan them
+        if (!targetHooks || targetHooks.length === 0) {
+            targetHooks = [...apiContent.matchAll(/export (?:function|const) (use\w+)/g)].map(m => m[1]);
+        }
+      }
+  }
+
+  // PRIORITY A: Project-Wide Symbol Index
+  logger.startSpinner("Building project-wide symbol impact map...");
+  const impactMap = await buildRepositoryImpactMap(project);
+  logger.stopSpinner(true, "Impact map ready.");
+
+  const mutationAnalyzer = new MutationAnalyzer();
+  const mutationTemplates = await mutationAnalyzer.analyzeProject(project);
+
+  const hookIndexer = new HookIndexer();
+  const customHookWrappers = await hookIndexer.indexProject(project);
+  
+  const projectContext: ProjectContext = {
+    filePath,
+    folderContext: dirname(filePath),
+    imports: sourceFile.getImportDeclarations().map(i => i.getModuleSpecifierValue()),
+    dependencies: [], 
+    detectedStyle: config.frontend.loadingTemplate ? 'Skeleton' : 'default',
+    tsConfigPath: tsConfigPath,
+    impactMap: impactMap,
+    protocol: config.protocol,
+    llm: config.llm
+  };
+
   const filePlan: BindingPlan = {
       bindings: [],
       loadingTemplate: config.frontend.loadingTemplate,
-      errorTemplate: config.frontend.errorTemplate
+      errorTemplate: config.frontend.errorTemplate,
+      protocol: config.protocol,
+      trpcExportName: config.backend.trpcExportName
   };
 
   for (const mock of mocks) {
@@ -61,141 +108,144 @@ export async function safeBind(
           mock,
           hook: 'N/A',
           reason: 'Mock Server Handler detected',
-          todoComment: `/* TODO(BINDER): Detects ${mock.type.replace('_', ' ').toUpperCase()}. 
+          todoComment: `/* TODO(BINDER): Detected ${mock.type.replace('_', ' ').toUpperCase()}. 
 Once the frontend components are bound to hooks, you should remove this handler from your mock server setup. */`
         });
         results.todo++;
         continue;
     }
 
-    // 1. Trace Prop Drilling (Phase 10)
+    const usages = findAllUsages(mock.name, sourceFile);
     const drills = await tracePropDrilling(mock.name, sourceFile, project);
-    if (drills.length > 0) {
-        logger.info(`  [Prop Drill] Trace found: ${mock.name} passed to ${drills[0].componentName}`);
-    }
-
-    // 2. Matching Logic (Ensemble)
-    const cached = getCachedBinding(filePath, mock.name);
-    let hookName = (cached as any)?.hookName;
-    let confidence = cached ? 1.0 : 0;
-    let ambiguous = false;
-
-    if (!hookName) {
-        const hMatches = heuristicMatch([mock], hookNames, filePath);
-        const sMatches = semanticMatch([mock], hookNames.map(n => ({name: n, method: 'GET', path: '/', responseType: 'any'})), apiContent);
-        const cMatches = contextualMatch(mock, filePath, sourceFile, hookNames);
-
-        const scores: Record<string, number> = {};
-        for (const name of hookNames) {
-            const h = hMatches.find(m => m?.hookName === name)?.confidence || 0;
-            const s = sMatches.find(m => m?.hookName === name)?.confidence || 0;
-            const c = cMatches.find(m => m?.hookName === name)?.confidence || 0;
-            
-            // Ensemble Score: Use the strongest signal
-            scores[name] = Math.max(h, s, c);
-        }
-
-        const sorted = Object.entries(scores).filter(([_, s]) => s > 0).sort((a, b) => b[1] - a[1]);
-        if (sorted.length > 0 && (sorted[0][1] >= 0.6)) {
-            hookName = sorted[0][0];
-            const ensembleScore = sorted[0][1];
-            confidence = ensembleScore;
-            
-            if (sorted.length > 1 && (sorted[0][1] - sorted[1][1] < 0.2)) {
-                ambiguous = true;
-            }
-            
-            // Learning Engine Boost (Phase 9)
-            const prediction = engine.predict({
-                mockName: mock.name,
-                structuralSignature: generateSignature(sourceFile.getDescendantsOfKind(SyntaxKind.Identifier).find(id => id.getText() === mock.name)!)
-            } as any);
-            
-            confidence = calculateConfidence(ensembleScore, prediction?.confidence || 0, 0);
-            
-            if (sorted[1] && (confidence - sorted[1][1]) < 0.15) ambiguous = true;
-        }
-    }
-
-    if (!hookName || (confidence < 0.5 && !ambiguous)) {
-      results.skip++;
-      continue;
-    }
-
-    // 3. Safety Check
-    const rewriteResult = safeRewrite(mock, hookName, sourceFile);
     
-    // 4. Shape Remapping (Phase 13)
-    let transformer = undefined;
-    if (mock.resolvedContent && mock.inferredShape) {
-        const remapper = generateShapeRemapper(mock.name, mock.inferredShape, {}); // Hook shape placeholder
-        if (remapper) {
-            transformer = remapper.remapperName;
-        }
-    }
+    const decision = await decisionEngine.decide(
+      mock, 
+      usages as any, 
+      projectContext, 
+      targetHooks, 
+      apiContent, 
+      drills,
+      trpcProcedures,
+      mutationTemplates,
+      customHookWrappers
+    );
 
-    if (rewriteResult.type === 'auto' && !ambiguous) {
-        filePlan.bindings.push({
-            mockName: mock.name,
-            hookName: hookName,
-            confidence: confidence,
-            actionType: 'READ',
-            strategy: rewriteResult.strategy,
-            transformer: transformer,
-            loadingStrategy: config.frontend.loadingTemplate ? 'early-return-skeleton' : 'none',
-            errorStrategy: config.frontend.errorTemplate ? 'early-return-error' : 'none'
-        });
-    } else {
-        const todoComment = rewriteResult.todoComment || `/* TODO(BINDER): Ambiguous match or complex pattern. Suggestion: ${hookName} */`;
-        results.todos.push({ mock, hook: hookName, reason: rewriteResult.reason || 'ambiguous', todoComment });
+    if (decision.type === 'auto') {
+      logger.success(`  [Auto] ${mock.name} -> ${decision.binding?.hookName} (${(decision.confidence * 100).toFixed(0)}%)`);
+      filePlan.bindings.push(decision.binding!);
+      results.successes.push({ mockName: mock.name, hookName: decision.binding!.hookName });
+      results.auto++;
+    } else if (decision.type === 'human' && options.interactive) {
+      const { choice, apply } = await sessionManager.resolveHumanDecision(mock, decision);
+      if (apply) {
+        const binding: Binding = {
+          ...decision.binding!,
+          strategy: choice.id
+        };
+        filePlan.bindings.push(binding);
+        results.successes.push({ mockName: mock.name, hookName: binding.hookName });
+        results.human++;
+      } else {
         results.todo++;
+        results.todos.push({
+          mock,
+          hook: decision.binding?.hookName || 'unknown',
+          reason: 'human-skipped',
+          todoComment: `/* TODO(BINDER): Human skipped this decision. */`
+        });
+      }
+    } else {
+      const context = decision.todoContext;
+      const todoComment = `/* TODO(BINDER): ${context?.explanation}. Steps: ${context?.suggestedSteps.join(', ')} */`;
+      results.todos.push({
+        mock,
+        hook: decision.binding?.hookName || 'unknown',
+        reason: context?.reason || 'complex',
+        todoComment
+      });
+      results.todo++;
     }
   }
 
-  // 5. TRANSACTIONAL REWRITE
+  const mcp = new BinderMCP();
+  await mcp.initialize(config);
+
+  // Transactional Rewrite & Validation
   if (filePlan.bindings.length > 0) {
+      // Phase 5.2: Batch/Parallel Query Detection
+      const queryBindings = filePlan.bindings.filter(b => b.actionType === 'READ');
+      if (queryBindings.length >= 2 && config.protocol === 'trpc') {
+          logger.info(`  [Optimization] Detected ${queryBindings.length} parallel queries. Suggesting batch mode.`);
+          // In the future, we could swap for trpc.useQueries()
+      }
+
       try {
           let rewritten = rewriteFile(filePath, filePlan, config.frontend.generatedDir);
+          
+          // Self-healing layer: use MCP to fix immediate issues (imports, syntax, etc.)
           rewritten = await mcp.autoFix(filePath, rewritten);
-          const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir);
+          
+          const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir, config.backend.trpcAppRouterPath);
           
           if (check.passed) {
               results.rewrittenCode = rewritten;
-              results.auto = filePlan.bindings.length;
               filePlan.bindings.forEach(b => {
                   saveBinding(filePath, b.mockName, { hookName: b.hookName });
                   const usages = findAllUsages(b.mockName, sourceFile);
                   usages.forEach(u => recordPatternSuccess(u.structuralSignature, b.strategy || 'default'));
-                  if (options.generateTests) generateCompatibilityTest(filePath, b, config.frontend.generatedDir);
               });
           } else {
-              for (const binding of filePlan.bindings) {
-                  results.todos.push({
-                      mock: mocks.find(m => m.name === binding.mockName)!,
-                      hook: binding.hookName,
-                      reason: 'type-check-failure',
-                      todoComment: `/* TODO(BINDER): Auto-conversion failed. Manual review required. */`
-                  });
+              logger.warn(`  [Warning] Type check failed for auto-conversions in ${filePath}. Attempting self-heal...`);
+              
+              // Second pass self-heal with diagnostics
+              const diagnostics = check.errors || [];
+              const healed = await mcp.repair({
+                  filePath,
+                  code: rewritten,
+                  mockName: filePlan.bindings[0]?.mockName || 'unknown',
+                  hookName: filePlan.bindings[0]?.hookName || 'unknown',
+                  diagnostics
+              });
+              
+              if (healed.success && healed.newCode) {
+                logger.success(`  [Heal] MCP successfully repaired surgery issues.`);
+                results.rewrittenCode = healed.newCode;
+              } else {
+                logger.error(`  [Heal] MCP could not resolve type errors. Reverting.`);
+                for (const binding of filePlan.bindings) {
+                    results.todos.push({
+                        mock: mocks.find(m => m.name === binding.mockName)!,
+                        hook: binding.hookName,
+                        reason: 'type-check-failure',
+                        todoComment: `/* TODO(BINDER): Auto-conversion failed type check. Manual review required. */`
+                    });
+                }
+                results.todo += filePlan.bindings.length;
+                results.auto = 0;
+                results.human = 0;
               }
-              results.todo += filePlan.bindings.length;
           }
       } catch (e: any) {
           logger.error(`Surgery failed: ${e.message}`);
       }
   }
 
+  // Insert TODOs into the code if any
   if (results.todos.length > 0) {
-      const targetFile = results.rewrittenCode ? project.createSourceFile(filePath + '.tmp', results.rewrittenCode, { overwrite: true }) : sourceFile;
+      const targetContent = results.rewrittenCode || readFileSync(filePath, 'utf-8');
+      const tempFile = project.createSourceFile(filePath + '.tmp.tsx', targetContent, { overwrite: true });
+      
       for (const t of results.todos) {
-          await insertTodoComment(targetFile, t.mock, t.todoComment);
+          insertTodoComment(tempFile, t.mock, t.todoComment);
       }
-      results.rewrittenCode = targetFile.getFullText();
+      
+      results.rewrittenCode = tempFile.getFullText();
   }
 
   return results;
 }
 
-async function insertTodoComment(sourceFile: any, mock: MockFinding, comment: string) {
+function insertTodoComment(sourceFile: any, mock: MockFinding, comment: string) {
   const line = mock.line;
   // Find the node at the line
   const pos = sourceFile.compilerNode.getPositionOfLineAndCharacter(line - 1, 0);

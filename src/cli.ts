@@ -1,4 +1,6 @@
-﻿import "dotenv/config";
+import { versionNegotiation } from "./middleware/versionNegotiation.js";
+export { versionNegotiation };
+
 import { Command } from "commander";
 import pc from "picocolors";
 import pkg from "enquirer";
@@ -14,6 +16,7 @@ import { scanMocks } from "./scan/mockScanner.js";
 import { rewriteFile } from "./rewrite/astRewriter.js";
 import { validateCommand } from "./validate/validateCommand.js";
 import { discoveryPhase } from "./discover/scout.js";
+import { createBackup, undoLast, listHistory } from "./cli/undo.js";
 import type { Config } from "./config/types.js";
 
 const program = new Command();
@@ -40,55 +43,91 @@ program
 
 program
   .command("init")
-  .description("Initialize a new Binder project with a TUI")
+  .description("Initialize a new Binder project with an interactive setup")
   .action(async () => {
-    logger.startSpinner("📡 Handshaking with environment...");
-    const projectMap = await discoveryPhase({ backend: { schemaPath: "", url: "" }, frontend: { generatedDir: "" } } as any);
-    logger.stopSpinner(true, "Protocol sequence established.");
-    
     await revealLogo();
-    console.log(pc.bold("\n🚀 WELCOME TO BINDER INITIALIZATION\n"));
+    console.log(pc.bold(pc.cyan("\n🚀 BINDER INITIALIZATION SEQUENCE STARTING...\n")));
     
-    // 1. Dependency Check
+    logger.startSpinner("📡 Analyzing project DNA...");
+    const projectMap = await discoveryPhase({ backend: { schemaPath: "", url: "" }, frontend: { generatedDir: "" } } as any);
+    logger.stopSpinner(true, "Project DNA decrypted.");
+    
+    // 0. Protocol Intelligence
+    const protocolChoice = await new Select({
+        message: "Which protocol does your project use for data fetching?",
+        choices: [
+            { name: 'rest', message: 'REST API (Standard OpenAPI)' },
+            { name: 'trpc', message: 'tRPC (End-to-end Typesafe)' }
+        ]
+    }).run();
+    const isTrpc = protocolChoice === 'trpc';
+
+    // 1. Dependency Management
     const deps = projectMap.mainDependencies;
-    if (!deps.includes("@tanstack/react-query") || !deps.includes("axios")) {
+    const required = isTrpc ? ["@trpc/client", "@trpc/react-query", "@tanstack/react-query"] : ["@tanstack/react-query", "axios"];
+    const missing = required.filter(d => !deps.includes(d));
+
+    if (missing.length > 0) {
+        console.log(pc.yellow(`\n📦 Missing infrastructure: ${missing.join(", ")}`));
         const shouldInstall = await new Select({
-            message: `Recommended dependencies ${pc.yellow("@tanstack/react-query, axios")} are missing. Install?`,
-            choices: ['Yes (Install Now)', 'No (I will do it manually)']
+            message: `Would you like Binder to install these for you?`,
+            choices: ['Yes, install now (npm)', 'No, I will handle it']
         }).run();
         
         if (shouldInstall.startsWith('Yes')) {
             logger.startSpinner(`Installing dependencies...`);
             try {
-                execSync(`npm install @tanstack/react-query axios`, { stdio: 'ignore' });
-                logger.stopSpinner(true, `Dependencies installed.`);
+                execSync(`npm install ${missing.join(" ")}`, { stdio: 'ignore' });
+                logger.stopSpinner(true, `Dependencies integrated.`);
             } catch (e) {
-                logger.stopSpinner(false, `Failed to install dependencies.`);
+                logger.stopSpinner(false, `Automatic installation failed.`);
             }
         }
     }
 
-    // 2. Schema Discovery
-    let schemaPath = projectMap.tree.find(f => f.includes("openapi.json") || f.includes("swagger.json")) || "./openapi.json";
-    const schemaConfirm = await new Toggle({
-        message: `Detected schema at ${pc.cyan(schemaPath)}. Use this?`,
-        initial: true
-    }).run();
+    // 2. Schema / Router Discovery
+    let schemaPath = "";
+    let trpcRouterPath = "";
     
-    if (!schemaConfirm) {
-        schemaPath = await pkg.prompt({
-            type: 'input',
-            name: 'path',
-            message: 'Enter path to your OpenAPI schema (local or URL):'
-        }).then((r: any) => r.path);
+    if (isTrpc) {
+        trpcRouterPath = projectMap.tree.find(f => f.includes("root.ts") || f.includes("router.ts") || f.includes("AppRouter")) || "./src/server/routers/root.ts";
+        console.log(pc.cyan(`\n🔍 tRPC Router Discovery:`));
+        const routerConfirm = await new Toggle({
+            message: `Detected AppRouter definition at ${pc.bold(trpcRouterPath)}. Use it?`,
+            initial: true
+        }).run();
+        
+        if (!routerConfirm) {
+            trpcRouterPath = await pkg.prompt({
+                type: 'input',
+                name: 'path',
+                message: 'Enter path to your AppRouter type definition:'
+            }).then((r: any) => r.path);
+        }
+    } else {
+        schemaPath = projectMap.tree.find(f => f.includes("openapi.json") || f.includes("swagger.json")) || "./openapi.json";
+        console.log(pc.cyan(`\n🔍 Schema Discovery:`));
+        const schemaConfirm = await new Toggle({
+            message: `Found schema at ${pc.bold(schemaPath)}. Use it?`,
+            initial: true
+        }).run();
+        
+        if (!schemaConfirm) {
+            schemaPath = await pkg.prompt({
+                type: 'input',
+                name: 'path',
+                message: 'Enter path to your OpenAPI schema (Local path or URL):'
+            }).then((r: any) => r.path);
+        }
     }
 
-    // 3. UI Template Discovery
+    // 3. UI Template Intelligence
     const hasSkeleton = projectMap.tree.some(f => f.toLowerCase().includes("skeleton"));
     let loadingTemplate = hasSkeleton ? "<Skeleton />" : "<div>Loading...</div>";
     
+    console.log(pc.cyan(`\n🎨 UI Intelligence:`));
     const uiConfirm = await new Toggle({
-        message: `Suggested loading template: ${pc.yellow(loadingTemplate)}. Use this?`,
+        message: `Suggested loading guard: ${pc.yellow(loadingTemplate)}. Accept?`,
         initial: true
     }).run();
 
@@ -96,14 +135,51 @@ program
         loadingTemplate = await pkg.prompt({
             type: 'input',
             name: 'val',
-            message: 'Enter custom loading JSX (e.g. <MySpinner />):'
+            message: 'Custom loading JSX (e.g. <Spinner />):'
         }).then((r: any) => r.val);
     }
 
+    // 4. LLM Fallback Configuration
+    console.log(pc.cyan(`\n🧠 Advanced Intelligence (Optional):`));
+    console.log(pc.gray(`  Binder operates 100% locally with high precision by default.`));
+    console.log(pc.gray(`  However, for extremely messy legacy code, it can optionally use an LLM as a fallback.`));
+    const llmConfirm = await new Toggle({
+        message: `Enable optional LLM Fallback?`,
+        initial: false
+    }).run();
+
+    let llmConfig: any = { enabled: false };
+    if (llmConfirm) {
+        const providerChoice = await new Select({
+            message: "Select your preferred LLM Provider:",
+            choices: ['ollama', 'openai', 'anthropic', 'google', 'deepseek']
+        }).run();
+
+        const modelChoice = await pkg.prompt({
+            type: 'input',
+            name: 'model',
+            message: `Enter model name (e.g. ${providerChoice === 'ollama' ? 'llama3' : 'gpt-4o'}):`
+        }).then((r: any) => r.model);
+
+        llmConfig = {
+            enabled: true,
+            provider: providerChoice,
+            model: modelChoice || (providerChoice === 'ollama' ? 'llama3' : 'default')
+        };
+
+        if (providerChoice === 'ollama') {
+            llmConfig.host = 'http://localhost:11434/api/generate';
+        }
+    }
+
+    // 5. Configuration Commit
     const configPath = resolve(process.cwd(), "binder.config.json");
     const defaultConfig = {
+        protocol: protocolChoice,
         backend: { 
-            schemaPath: schemaPath, 
+            schemaPath: isTrpc ? undefined : schemaPath, 
+            trpcAppRouterPath: isTrpc ? trpcRouterPath : undefined,
+            trpcExportName: isTrpc ? "trpc" : undefined,
             url: "http://localhost:8000" 
         },
         frontend: { 
@@ -111,34 +187,150 @@ program
             loadingTemplate: loadingTemplate,
             errorTemplate: "<div>Error loading data</div>"
         },
-        orval: { client: "react-query" }
+        orval: isTrpc ? undefined : { client: "react-query" },
+        llm: llmConfig
     };
     
     writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
-    logger.success("\n✨ binder.config.json created successfully.");
-
-    console.log(pc.gray(divider));
-    logger.success("✔ BINDER INITIALIZED SUCCESSFULLY!");
-    logger.info("\n💡 NEXT STEPS:");
-    console.log(pc.white("  1. Run ") + pc.green("binder bind <file>") + pc.white(" to start migrating mocks.\n"));
+    
+    console.log(pc.gray(`\n${divider}`));
+    logger.success("✔ BINDER PROTOCOL INITIALIZED");
+    console.log(pc.white("\n  Next Command: ") + pc.bold(pc.green("binder bind <file>")));
+    console.log(pc.white("  Manual Override: ") + pc.bold(pc.cyan("binder bind <file> --interactive\n")));
   });
 
 program
-  .command("tutorial")
-  .description("Guide on how to use Binder")
+  .command("guide")
+  .alias("help")
+  .description("Comprehensive guide on Binder commands and workflow")
   .action(async () => {
     await revealLogo();
-    logger.box("BINDER WORKFLOW GUIDE", [
-      "1. INIT:   Run 'binder init' to auto-detect your project structure.",
-      "2. CONFIG: Check binder.config.json. We've auto-detected your schema and UI components.",
-      "3. BIND:   Run 'binder bind <file>' to swap mocks. Use --batch for directories.",
-      "4. REVIEW: For complex cases, Binder leaves TODOs. Follow the instructions in the comments.",
-      "5. CACHE:  Binder remembers your choices! The more you use it, the more it auto-binds."
-    ]);
-    console.log(pc.bold("\n💡 PRO TIPS:"));
-    console.log(pc.cyan("  --safe-only: ") + pc.white("Only auto-converts 100% safe patterns (Default)."));
-    console.log(pc.cyan("  --ignore:    ") + pc.white("Skip specific mocks if they are too complex."));
+    console.log(pc.bold(pc.cyan("\n📖 BINDER OPERATIONAL GUIDE\n")));
+    
+    const table = [
+        { Command: 'init', Purpose: 'Setup project DNA and automated protocols.' },
+        { Command: 'bind <path>', Purpose: 'Surgically swap mocks for real API hooks.' },
+        { Command: 'drift', Purpose: 'Deep field-level analysis of code vs schema.' },
+        { Command: 'watch', Purpose: 'Real-time local sentinel for contract health.' },
+        { Command: 'snapshot', Purpose: 'Capture an immutable record of contract state.' },
+        { Command: 'dashboard', Purpose: 'Generate cinematic report with rollback intelligence.' },
+        { Command: 'scaffold', Purpose: 'Generate UI components and hooks from OpenAPI.' },
+        { Command: 'deploy-guard', Purpose: 'CI check: abort deployment if unverified.' },
+        { Command: 'serve', Purpose: 'Host the live dashboard and version capabilities.' },
+        { Command: 'upgrade', Purpose: 'Analyze snapshots to generate migration plans.' },
+        { Command: 'undo', Purpose: 'Safety net: Revert the last surgical operation.' },
+        { Command: 'validate', Purpose: 'Verify project health and config alignment.' },
+    ];
+    
+    console.table(table);
+
+    console.log(pc.bold("\n💡 WORKFLOW TIPS:"));
+    console.log(pc.white("  • Use ") + pc.bold(pc.green("--interactive")) + pc.white(" to review complex architectural decisions."));
+    console.log(pc.white("  • Use ") + pc.bold(pc.yellow("--dry-run")) + pc.white(" to preview AST changes in the terminal."));
+    console.log(pc.white("  • Binder ") + pc.bold(pc.cyan("Self-Heals")) + pc.white(" using MCP if type checks fail after surgery."));
   });
+
+// Register new CLI commands – snapshot
+import { runSnapshot } from "./cli/snapshot.js";
+import { runUpgrade } from "./cli/upgrade.js";
+import { runDashboard } from "./cli/dashboard.js";
+import { runScaffold } from "./cli/scaffold.js";
+import { runWatch } from "./cli/watch.js";
+import { runDrift } from "./cli/drift.js";
+import { runDeployGuard } from "./cli/deployGuard.js";
+import { runVerify } from "./cli/verify.js";
+import { runSync } from "./cli/sync.js";
+import { runAutoPilot } from "./cli/autoPilot.js";
+
+
+program
+  .command("snapshot")
+  .description("Create a Binder snapshot of repo state and OpenAPI hash")
+  .option("--status <type>", "Status of the contract (verified | failed)")
+  .action(async (opts) => {
+    await runSnapshot(opts);
+  });
+
+// Serve command – starts the Express version‑negotiation server
+import { startServer } from "./server/app.js";
+program
+  .command("serve")
+  .description("Run Binder auxiliary server (version negotiation & capabilities)")
+  .option("-p, --port <number>", "Port to listen on", "3000")
+  .action(async (opts) => {
+    const port = Number(opts.port);
+    startServer(port);
+    console.log(`Binder server started on http://localhost:${port}`);
+  });
+
+program
+  .command("upgrade")
+  .description("Analyze snapshots and generate a migration plan")
+  .action(async () => {
+    await runUpgrade();
+  });
+
+program
+  .command("dashboard")
+  .alias("map")
+  .description("Generate a visual compatibility dashboard with rollback intelligence")
+  .action(async () => {
+    await runDashboard();
+  });
+
+program
+  .command("scaffold <endpoint>")
+  .description("Generate frontend code from an OpenAPI endpoint")
+  .option("-p, --pattern <name>", "Pattern name from .binder/patterns/")
+  .option("-w, --write", "Write the generated component to disk", false)
+  .option("-o, --output <path>", "Output directory for the component", "src/components/generated")
+  .action(async (endpoint, options) => {
+    await runScaffold(endpoint, options);
+  });
+
+program
+  .command("watch")
+  .description("Real-time local sentinel: watch schema and source for drift")
+  .action(async () => {
+    await runWatch();
+  });
+
+program
+  .command("drift")
+  .description("Analyze live code vs schema for contract mismatches")
+  .action(async () => {
+    await runDrift();
+  });
+
+program
+  .command("deploy-guard")
+  .description("Verify deployment safety against the latest snapshot")
+  .action(async () => {
+    await runDeployGuard();
+  });
+
+program
+  .command("verify")
+  .description("Cross-check compatibility with a specific snapshot tag")
+  .requiredOption("-t, --target <tag>", "Target snapshot tag or ID")
+  .action(async (opts) => {
+    await runVerify(opts);
+  });
+
+program
+  .command("sync")
+  .description("Pull latest schema and scan project for mocks")
+  .action(async () => {
+    await runSync();
+  });
+
+program
+  .command("auto-pilot")
+  .description("Execute full Binder workflow: sync -> drift -> snapshot")
+  .action(async () => {
+    await runAutoPilot();
+  });
+
 
 program
   .command("bind <path>")
@@ -148,6 +340,7 @@ program
   .option("--dry-run", "Preview changes without writing files", false)
   .option("--generate-tests", "Auto-generate Vitest compatibility tests", false)
   .option("--auto-only", "Only auto-convert 100% safe matches", false)
+  .option("--repo", "Full repository sweep: propagate matches across the entire project", false)
   .option("--ignore <variables>", "Comma-separated list of mock variables to ignore")
   .option("--only <variables>", "Comma-separated list of mock variables to exclusively target")
   .action(async (targetPath, options) => {
@@ -170,7 +363,9 @@ program
       : [absTarget];
 
     const { safeBind } = await import("./orchestrator/safeBind.js");
-    const { manualReviewMode } = await import("./cli/reviewMode.js");
+    const { propagateMatches } = await import("./orchestrator/propagator.js");
+
+    const sessionSuccesses: Array<{ mockName: string, hookName: string }> = [];
 
     for (const file of files) {
       logger.system(`\n>>> Analyzing: ${pc.bold(file)}`);
@@ -191,28 +386,53 @@ program
           if (options.dryRun) {
               console.log(pc.gray(`\n--- DRY RUN: ${file} ---\n`) + bindResults.rewrittenCode);
           } else {
+              createBackup(file);
               writeFileSync(file, bindResults.rewrittenCode);
-              logger.success(`✔ Applied changes to ${file} (${bindResults.auto} auto, ${bindResults.todo} TODOs).`);
+              logger.success(`✔ Applied changes to ${file} (${bindResults.auto} auto, ${bindResults.human} human, ${bindResults.todo} TODOs).`);
+              
+              // Track for propagation
+              sessionSuccesses.push(...bindResults.successes);
           }
       }
 
-      if (options.interactive && bindResults.todos.length > 0) {
-        const manualResults = await manualReviewMode(bindResults.todos);
-        for (const res of manualResults) {
-          if (res.willAutoConvert) {
-            // Re-run rewrite for specific override
-            const { rewriteFile } = await import("./rewrite/astRewriter.js");
-            const plan = { bindings: [{ mockName: res.mock.name, hookName: res.hook, confidence: 1.0, actionType: 'READ' as const }] };
-            const rewritten = rewriteFile(file, plan as any, config.frontend.generatedDir);
-            if (!options.dryRun) writeFileSync(file, rewritten);
-            logger.success(`✓ Manual Override applied for ${res.mock.name}.`);
-          }
+      if (bindResults.todos.length > 0) {
+        for (const res of bindResults.todos) {
+            logger.info(`  [TODO] ${res.mock.name}: ${res.reason}`);
         }
       }
     }
 
+    // POST-SESSION PROPAGATION
+    if (!options.dryRun && sessionSuccesses.length > 0) {
+        const absoluteProcessedFiles = files.map(f => resolve(f));
+        const remainingFiles = projectMap.tree
+            .map(f => resolve(process.cwd(), f))
+            .filter(f => f.endsWith('.tsx') && !absoluteProcessedFiles.includes(f));
+        
+        let shouldPropagate = options.repo;
+        if (!shouldPropagate && remainingFiles.length > 0) {
+            const confirm = await new Toggle({
+                message: `Binder found ${sessionSuccesses.length} successful matches. Scan the rest of the project for these exact mocks?`,
+                initial: true
+            }).run();
+            shouldPropagate = confirm;
+        }
+
+        if (shouldPropagate && remainingFiles.length > 0) {
+            await propagateMatches(sessionSuccesses, config, remainingFiles);
+        }
+    }
+
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.success(`\n✨ Binding complete in ${duration}s`);
+  });
+
+program
+  .command("validate")
+  .description("Validate project state and configuration")
+  .action(async () => {
+    const config = await loadConfig(program.opts().config);
+    await validateCommand(config);
   });
 
 program
@@ -238,6 +458,20 @@ program
     } else {
         console.table(report.map(r => ({ File: r.file, Mocks: r.count })));
     }
+  });
+
+program
+  .command("undo <path>")
+  .description("Restore a file to its state before the last Binder operation")
+  .action((path) => {
+    undoLast(resolve(path));
+  });
+
+program
+  .command("history [path]")
+  .description("List binding history for a file or project")
+  .action((path) => {
+    listHistory(path ? resolve(path) : undefined);
   });
 
 program.parse();

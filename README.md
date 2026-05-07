@@ -1,43 +1,86 @@
-# 🔗 Binder: A Helper for Frontend-to-Backend Binding
+# 🔗 Binder: The Sovereign Contract Engine
+```text
+╔═════════════════════════════════════════════════════╗
+║    ██████╗ ██╗███╗   ██╗██████╗ ███████╗██████╗     ║
+║    ██╔══██╗██║████╗  ██║██╔══██╗██╔════╝██╔══██╗    ║
+║    ██████╔╝██║██╔██╗ ██║██║  ██║█████╗  ██████╔╝    ║
+║    ██╔══██╗██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗    ║
+║    ██████╔╝██║██║ ╚████║██████╔╝███████╗██║  ██║    ║
+║    ╚═════╝ ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═     ║
+╚═════════════════════════════════════════════════════╝
+             MOCK-TO-API BINDING ENGINE
+```
 
-**Binder** is a CLI utility designed to assist with the repetitive task of connecting React frontends to backends. It uses deterministic AST-based rules to replace mock data with real API hooks where safe, and provides detailed guidance for everything else.
+**Binder** is a CLI tool and Dashboard platform that automates the most painful part of frontend development: 
+**Connecting your UI to the Backend.** It transforms static mocked frontends into live, API-driven applications while acting as a **Sovereign Sentinel** to ensure your contracts never drift.
 
-**No LLM. No Guessing. Built for Developers.**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/%3C%2F%3E-TypeScript-%23007acc.svg)](https://www.typescriptlang.org/)
+[![Enterprise Ready](https://img.shields.io/badge/Enterprise-Ready-green.svg)](#)
 
-## 🚀 Key Features
+---
 
-- **80/20 Migration Strategy**: Automatically converts simple patterns (direct assignments, basic maps) and leaves `TODO(BINDER)` comments for complex logic that requires a human eye.
-- **Ensemble Matching**: Uses a combination of name-based heuristics, data shape analysis, and project context to suggest the best API hook for your mock.
-- **Compliance Validation**: Runs your project's own TypeScript compiler (`ts-morph`) on changes in memory. If a rewrite breaks your build, Binder reverts it and flags it for review.
-- **Autonomous Mechanical Repair**: Uses the Model Context Protocol (MCP) to fix simple syntax or import issues automatically during the migration.
-- **Learning Cache**: Remembers your manual binding choices. The more you use it in a project, the more it can automate recurring patterns.
+## 🌟 The Binder Core: "Mock-to-Real"
 
-## 🛠️ Usage
+The heart of Binder is the **Surgical Binding Engine**. 
+- **The Problem**: You've built a beautiful UI with mock data (`const users = [{...}]`). Now you have to spend hours deleting that code and replacing it with `useQuery`, types, and error handling.
+- **The Binder Solution**: Run `binder bind src/MyPage.tsx`. Binder uses AST surgery to surgically swap your mocks for real API hooks, ensuring type safety and zero manual plumbing.
 
-### 1. Initialize
-Auto-detect your project structure and schema:
+---
+
+## 🚀 Key Pillars
+
+### 1. ⚡ Autonomous Binding
+Deterministic AST analysis swaps your mock variables for real API hooks.
+- **Deep Data Flow**: Traces data through Props, Redux, and Zustand to find every downstream consumer.
+- **Transactional Safety**: If a rewrite breaks your build, Binder reverts it automatically.
+
+### 2. 🛡️ Sovereign Contract Governance
+Turn your OpenAPI or tRPC schema into a living, enforced contract.
+- **Drift Detection**: Catch field-level mismatches before they hit a Pull Request.
+- **Autonomous Repair**: `binder sync --apply` automatically refactors your code when the backend renames a field.
+- **Deployment Guard**: A CI sentinel that physically blocks deployments if the frontend-backend contract is unverified.
+
+### 3. 🏗️ Pattern-Driven Scaffolding
+Generate code in seconds, not hours.
+- **Full-Stack Scaffolding**: Generates Zod schemas, TypeScript types, and React components in one go.
+- **Consistency**: Uses your team's exact coding patterns from `.binder/patterns/`.
+
+### 🕹️ The Command Center (Dashboard)
+A visual cockpit for your project's health. 
+- **One-Click Fixes**: Resolve contract drifts directly from the browser.
+- **Time Machine**: Browse snapshots and rollback your project to a last-known-good state.
+
+---
+
+## 🛠️ Quick Start
+
+### 1. Installation
+```bash
+npm install -g @bindercli/core
+```
+
+### 2. Connect Your Project
 ```bash
 binder init
 ```
 
-### 2. Bind
-Run on a specific file to start the migration:
+### 3. The Surgical Swap
 ```bash
 binder bind src/pages/Dashboard.tsx
 ```
 
-### 3. Review
-Search your codebase for `TODO(BINDER)` to find complex cases that need manual attention. Binder provides instructions and the original compiler error in the comment.
+### 4. Stay in Sync
+```bash
+binder sync --apply
+```
 
-## 🧠 Why Binder?
+---
 
-Binder is an **assistant**, not a replacement for engineering judgment.
-- **Safe by Default**: Transactional rewrites mean your code is never left in a broken state.
-- **Transparent**: Every decision is logged, and complex patterns are always deferred to you.
-- **Surgical**: Preserves your formatting and logic by manipulating the AST directly.
+## 📖 Learn More
 
-## 📄 License
+- [User Manual](USER_MANUAL.md) - How to use every command.
+- [Architecture](ARCHITECTURE.md) - Under the hood of the Sentinel engine.
+- [Security Policy](SECURITY.md) - How we handle your contract data.
+
 MIT © 2026 Binder Team

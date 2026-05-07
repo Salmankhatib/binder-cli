@@ -40,6 +40,7 @@ export function scanMocks(filePath: string, config?: Config): MockFinding[] {
   
   const isMockName = (name: string) => {
       if (MOCK_PREFIX.test(name) || DATA_SUFFIX.test(name)) return true;
+      if (MOCK_PATTERNS.test(name)) return true;
       if (customPrefixes.some(p => name.startsWith(p))) return true;
       if (customSuffixes.some(s => name.endsWith(s))) return true;
       return false;
@@ -70,21 +71,49 @@ export function scanMocks(filePath: string, config?: Config): MockFinding[] {
     });
   });
 
-  // 2. Detect Variables & Arrays (Local)
-  sourceFile.getVariableDeclarations().forEach(decl => {
-    const name = decl.getName();
-    const init = decl.getInitializer();
+  // 2. Detect Variables & Arrays (File-wide scan, not just top-level)
+  sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration).forEach(decl => {
+    const nameNode = decl.getNameNode();
+    let name = decl.getName();
+    
+    // Handle destructuring from useState: const [data, setData] = useState([...])
+    if (Node.isArrayBindingPattern(nameNode)) {
+        name = nameNode.getElements()[0]?.getText() || 'unknown';
+    }
+
     if (mockVariables.has(name)) return;
 
-    if (isMockName(name) || name === "data" || name === "items") {
-      if (init?.isKind(SyntaxKind.ArrayLiteralExpression)) {
+    if (isMockName(name) || name === "data" || name === "items" || name.startsWith("data")) {
+      const init = decl.getInitializer();
+      
+      // If it's initialized by a custom hook (already bound to API), skip it!
+      if (init?.isKind(SyntaxKind.CallExpression) && init.getExpression().getText().startsWith('use') && init.getExpression().getText() !== 'useState') {
+          return; // Skip already bound queries
+      }
+      
+      // If it's useState, the actual array/object is inside the first argument
+      let actualInit = init;
+      if (init?.isKind(SyntaxKind.CallExpression) && init.getExpression().getText() === 'useState') {
+          actualInit = init.getArguments()[0];
+      }
+
+      if (actualInit?.isKind(SyntaxKind.ArrayLiteralExpression)) {
         findings.push({ 
             type: 'inline_array', 
             name, 
             line: decl.getStartLineNumber(), 
             snippet: decl.getText().slice(0, 100), 
-            inferredShape: inferShape(init as ArrayLiteralExpression),
-            resolvedContent: init.getText()
+            inferredShape: inferShape(actualInit as ArrayLiteralExpression),
+            resolvedContent: actualInit.getText()
+        });
+      } else if (actualInit?.isKind(SyntaxKind.ObjectLiteralExpression)) {
+        findings.push({ 
+            type: 'variable_mock', 
+            name, 
+            line: decl.getStartLineNumber(), 
+            snippet: decl.getText().slice(0, 100), 
+            inferredShape: inferObjectShape(actualInit as any),
+            resolvedContent: actualInit.getText()
         });
       } else {
         findings.push({ 
@@ -92,7 +121,7 @@ export function scanMocks(filePath: string, config?: Config): MockFinding[] {
             name, 
             line: decl.getStartLineNumber(), 
             snippet: decl.getText().slice(0, 80),
-            resolvedContent: init?.getText()
+            resolvedContent: actualInit?.getText()
         });
       }
       mockVariables.add(name);
@@ -159,8 +188,14 @@ function inferShape(arrayLit: ArrayLiteralExpression): Record<string, string> | 
   if (elements.length === 0) return undefined;
   const first = elements[0];
   if (!Node.isObjectLiteralExpression(first)) return undefined;
+  return inferObjectShape(first);
+}
+
+function inferObjectShape(objLit: any): Record<string, string> {
   const shape: Record<string, string> = {};
-  first.getProperties().forEach(prop => {
+  if (!Node.isObjectLiteralExpression(objLit)) return shape;
+  
+  objLit.getProperties().forEach(prop => {
     if (Node.isPropertyAssignment(prop)) {
       shape[prop.getName()] = prop.getInitializer()?.getKindName().replace('Literal', '').toLowerCase() || 'any';
     }

@@ -1,11 +1,17 @@
 export interface Config {
+  /** The protocol used by the project */
+  protocol: 'rest' | 'trpc';
   backend: {
-    /** Path to openapi.json file or URL to running OpenAPI JSON */
-    schemaPath: string;
+    /** Path to openapi.json file or URL to running OpenAPI JSON (for REST) */
+    schemaPath?: string;
     /** Optional base URL for API requests */
     url?: string;
-    /** Schema format */
+    /** Schema format (for REST) */
     schemaFormat?: 'yaml' | 'json' | 'url';
+    /** Path to the AppRouter type definition (for tRPC) */
+    trpcAppRouterPath?: string;
+    /** Name of the exported trpc client (for tRPC, e.g. 'trpc') */
+    trpcExportName?: string;
   };
   frontend: {
     /** Where Orval outputs generated code */
@@ -29,17 +35,19 @@ export interface Config {
     /** Base URL for axios instance */
     baseUrl?: string;
   };
-  llm: {
-    /** 'ollama' | 'openai' | 'gemini' */
-    provider: string;
-    /** Model name, e.g. 'codellama:13b' */
-    model: string;
-    /** API host */
-    host: string;
+  llm?: {
+    /** Whether LLM fallback is enabled */
+    enabled: boolean;
+    /** 'ollama' | 'openai' | 'anthropic' | 'google' | 'deepseek' */
+    provider?: string;
+    /** Model name, e.g. 'llama3', 'gpt-4o' */
+    model?: string;
+    /** API host (for ollama or custom endpoint) */
+    host?: string;
     /** Temperature (0.0 - 1.0) */
-    temperature: number;
+    temperature?: number;
     /** Max retries for repair loop */
-    maxRetries: number;
+    maxRetries?: number;
   };
   mcpServers?: Array<{
     name: string;

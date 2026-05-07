@@ -30,7 +30,32 @@ export function heuristicMatch(
       const dist = levenshtein(mockNorm, hookNorm);
       const maxLen = Math.max(mockNorm.length, hookNorm.length);
       const similarity = maxLen === 0 ? 0 : 1 - dist / maxLen;
-      weight += similarity * 0.8; // Increased base name weight from 0.6 to 0.8
+      weight += similarity * 0.7; 
+
+      // 1.5 Substring Boost (+40% for strong sub-matches)
+      if (mockNorm === hookNorm) {
+          weight += 0.6; 
+      } else if (hookNorm.includes(mockNorm) || mockNorm.includes(hookNorm)) {
+          weight += 0.45; 
+      } else if (hookNorm.split('.')[0] === mockNorm || mockNorm.split('.')[0] === hookNorm) {
+          // Handle tRPC namespaces: MOCK_USER -> user.list
+          weight += 0.4;
+      }
+
+      // 1.6 Plurality match (users -> user)
+      const mockIsPlural = mock.name.endsWith('S') || mock.name.includes('LIST') || mock.name.includes('DATA') || mock.name.includes('ARRAY');
+      const hookIsPlural = hookNorm.includes('list') || hookNorm.includes('all') || hookNorm.includes('many');
+
+      if (mockIsPlural && hookIsPlural) {
+          weight += 0.2;
+      } else if (!mockIsPlural && !hookIsPlural) {
+          weight += 0.15; // Boost singular-to-singular
+      }
+
+      // 1.7 ID Match Boost (getById, getOne)
+      if (!mockIsPlural && (hookNorm.includes('byid') || hookNorm.includes('one') || hookNorm.includes('detail'))) {
+          weight += 0.3;
+      }
 
       // 2. Folder Context Boost (+15%)
       const hookKeyword = hookNorm.replace('use_', '');
@@ -48,7 +73,7 @@ export function heuristicMatch(
 
       const confidence = Math.min(weight, 1.0);
 
-      if (confidence >= 0.6) { // Lowered from 0.7
+      if (confidence >= 0.3) { 
         if (!best || confidence > best.confidence) {
           best = { mockName: mock.name, hookName: hook, confidence };
         }
@@ -83,7 +108,7 @@ export function normalizeName(str: string): string {
     .replace(/_(DATA|LIST|ARRAY|ITEMS|SET)$/i, '')
     .replace(/([a-z])([A-Z])/g, '$1_$2')
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/[^a-z0-9\.]/g, '');
 }
 
 export function levenshtein(a: string, b: string): number {

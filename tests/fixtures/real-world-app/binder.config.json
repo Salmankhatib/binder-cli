@@ -1,0 +1,11 @@
+{
+  "backend": {
+    "schemaPath": "openapi.json",
+    "url": "http://localhost:8000"
+  },
+  "frontend": {
+    "generatedDir": "./src",
+    "loadingTemplate": "<Skeleton />",
+    "errorTemplate": "<div>Error</div>"
+  }
+}

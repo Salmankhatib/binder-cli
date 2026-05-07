@@ -1,4 +1,4 @@
-﻿import { Project, SyntaxKind, Node, SourceFile, ImportDeclaration, VariableDeclaration, FunctionDeclaration } from "ts-morph";
+import { Project, SyntaxKind, Node, SourceFile, ImportDeclaration, VariableDeclaration, FunctionDeclaration } from "ts-morph";
 import { relative, dirname, resolve } from "path";
 import { logger } from "../utils/logger.js";
 import { generateShapeRemapper } from "./shapeRemapper.js";
@@ -95,7 +95,27 @@ function ensureHookImports(sourceFile: SourceFile, hookNames: string[], importPa
   }
 }
 
+import { applyDefaultStrategy } from "./strategies/default.js";
+import { applyWrapInUseMemo } from "./strategies/wrapInUseMemo.js";
+import { applyGuardByLoading } from "./strategies/guardByLoading.js";
+import { applyClientPagination } from "./strategies/clientPagination.js";
+import { applyLazyInitialize } from "./strategies/lazyInitialize.js";
+import { applyMigrateToUseQuery } from "./strategies/migrateToUseQuery.js";
+import { applyTestWrapper } from "./strategies/testWrapper.js";
+import { applyMutationSetter } from "./strategies/mutationSetter.js";
+import { applySubscriptionBind } from "./strategies/subscriptionBind.js";
+import { applyOptimisticMutation } from "./strategies/optimisticMutation.js";
+import { ReactQueryAdapter } from "../adapters/reactQuery.adapter.js";
+import { TrpcAdapter } from "../adapters/trpc.adapter.js";
+
 function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
+  // ADAPTIVE: Choose adapter based on protocol
+  // This needs to be passed down or retrieved from a global context/plan
+  const protocol = (plan as any).protocol || 'rest';
+  const adapter = protocol === 'trpc' 
+    ? new TrpcAdapter((plan as any).trpcExportName || 'trpc') 
+    : new ReactQueryAdapter();
+  
   const components = [
     ...sourceFile.getFunctions().filter(f => f.getBody()),
     ...sourceFile.getVariableDeclarations().filter(v => {
@@ -109,162 +129,68 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
     if (!body || !Node.isBlock(body)) continue;
 
     for (const binding of plan.bindings) {
-      const isMutation = binding.hookName.toLowerCase().includes('post') || 
-                         binding.hookName.toLowerCase().includes('delete') || 
-                         binding.hookName.toLowerCase().includes('patch') || 
-                         binding.hookName.toLowerCase().includes('put');
-
-      // --- NEW: Professional Name Cleanup ---
-      // If variable is MOCK_AGENTS, we rename it to 'agents' globally in the file
-      let targetName = binding.mockName;
+      // Clean mock name if necessary
       if (binding.mockName.toUpperCase().startsWith('MOCK_') || binding.mockName.toUpperCase().startsWith('FAKE_')) {
           const cleanName = binding.mockName.replace(/^(MOCK_|FAKE_|STUB_|DUMMY_|SAMPLE_|TEST_)/i, '').toLowerCase();
-          
-          // Use AST to rename all occurrences safely
           const identifier = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
             .find(id => id.getText() === binding.mockName);
           
           if (identifier) {
-            logger.system(`  [Surgery] Cleaning name: ${binding.mockName} -> ${cleanName}`);
             identifier.rename(cleanName);
-            targetName = cleanName;
+            binding.mockName = cleanName; // Update binding object for subsequent steps
           }
       }
 
-      // Check if the mock is an existing function or variable we should replace
-      const existingFunc = body.getVariableDeclaration(targetName) || 
-                           sourceFile.getFunction(targetName) ||
-                           body.getDescendantsOfKind(SyntaxKind.FunctionDeclaration).find(f => f.getName() === targetName);
+      const strategy = binding.strategy || 'default';
+      
+      logger.system(`  [Surgery] Applying strategy: ${strategy} for ${binding.mockName}`);
 
-      if (existingFunc) {
-          logger.system(`  [Surgery] Replacing existing declaration of "${targetName}" with hook/mutation`);
-          if (Node.isVariableDeclaration(existingFunc)) {
-              const statement = existingFunc.getFirstAncestorByKind(SyntaxKind.VariableStatement);
-              // Only remove if it's a "mock" declaration (e.g. uses useQuery or is a mock func)
-              const text = statement?.getText() || "";
-              if (text.includes('useQuery') || text.includes('Promise.resolve') || isMutation) {
-                statement?.remove();
-              }
-          } else {
-              (existingFunc as any).remove();
-          }
-      }
-
-      if (isMutation) {
-        // useMutation hook
-        const hookCallLine = `const ${targetName} = ${binding.hookName}();`;
-        if (!body.getText().includes(`${binding.hookName}(`)) {
-          insertAfterLastHook(body, hookCallLine);
-        }
-      } else {
-        // useQuery hook with Strategy support
-        const hookVar = targetName;
-        
-        // FIX 3: Detect Mandatory Parameters
-        const hookDecl = sourceFile.getImportDeclaration(i => i.getModuleSpecifierValue().includes('api'))
-          ?.getModuleSpecifier().getSymbol()?.getDeclarations()[0]; // Simplified lookup
-          
-        let hookCallLine = "";
-        
-        // STRATEGY BRANCHING
-        switch (binding.strategy) {
-          case 'wrap-in-usememo':
-            hookCallLine = `const { data: ${hookVar}Raw, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();\n`;
-            hookCallLine += `const ${hookVar} = useMemo(() => ${hookVar}Raw?.${binding.transformer || 'map(x => x)'}, [${hookVar}Raw]);`;
-            ensureHookImports(sourceFile, ['useMemo'], 'react');
-            break;
-            
-          case 'migrate-to-usequery':
-            hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();`;
-            break;
-            
-          case 'swap-data-source-only':
-            hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
-            break;
-
-          case 'inject-both-hooks':
-            hookCallLine = `const { data: ${hookVar}Result } = ${binding.hookName}();`;
-            break;
-
-          case 'rewrite-effect-deps':
-            hookCallLine = `const { data: ${hookVar} } = ${binding.hookName}();`;
-            // Find useEffect calls and rewrite them
-            body.getDescendantsOfKind(SyntaxKind.CallExpression)
-                .filter(c => c.getExpression().getText() === 'useEffect')
-                .forEach(effect => {
-                    const result = rewriteEffectDependency(effect, binding.mockName, hookVar);
-                    if (result) {
-                        effect.replaceWithText(`useEffect(() => {\n  ${result.replaceBody}\n}, [${result.replaceDeps.join(', ')}])`);
-                    }
-                });
-            break;
-
-          case 'wrap-in-effect-guard':
-            hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading } = ${binding.hookName}();`;
-            break;
-
-          default:
-            hookCallLine = `const { data: ${hookVar}, isLoading: ${hookVar}Loading, isError: ${hookVar}Error } = ${binding.hookName}();`;
-        }
-
-        // Shape Remapping Integration (Phase 13)
-        if (binding.transformer) {
-            const remapper = generateShapeRemapper(binding.mockName, {}, {}); // Shapes passed via plan in future
-            if (remapper) {
-                sourceFile.insertStatements(sourceFile.getImportDeclarations().length + 1, remapper.code);
-                hookCallLine = hookCallLine.replace(`data: ${hookVar}`, `data: ${hookVar}Raw`);
-                hookCallLine += `\nconst ${hookVar} = ${hookVar}Raw ? ${remapper.remapperName}(${hookVar}Raw) : undefined;`;
-            }
-        }
-        
-        if (!body.getText().includes(`${binding.hookName}(`)) {
-          insertAfterLastHook(body, hookCallLine);
-          
-          if (binding.strategy !== 'swap-data-source-only' && binding.strategy !== 'ensure-superset') {
-            // Apply Loading Strategy
-            if (binding.loadingStrategy === 'early-return-skeleton') {
-                const template = plan.loadingTemplate || `<div>Loading ${hookVar}...</div>`;
-                insertStatementAfter(body, hookCallLine, `if (${hookVar}Loading) return ${template};`);
-            }
-
-            // Apply Error Strategy
-            if (binding.errorStrategy === 'early-return-error') {
-                const template = plan.errorTemplate || `<div>Error loading ${hookVar}</div>`;
-                insertStatementAfter(body, hookCallLine, `if (${hookVar}Error) return ${template};`);
-            }
-          }
-        }
+      switch (strategy) {
+        case 'wrap-in-usememo':
+          applyWrapInUseMemo(body, binding, sourceFile, adapter);
+          break;
+        case 'guard-by-loading':
+          applyGuardByLoading(body, binding, sourceFile, adapter);
+          break;
+        case 'client-pagination':
+          applyClientPagination(body, binding, sourceFile, adapter);
+          break;
+        case 'lazy-initialize':
+          applyLazyInitialize(body, binding, sourceFile, adapter);
+          break;
+        case 'migrate-to-usequery':
+          applyMigrateToUseQuery(body, binding, sourceFile, adapter);
+          break;
+        case 'test-wrapper':
+          applyTestWrapper(body, binding, sourceFile, adapter);
+          break;
+        case 'optimistic-mutation':
+          applyOptimisticMutation(body, binding, sourceFile, adapter);
+          break;
+        case 'mutation-create':
+        case 'mutation-update':
+        case 'mutation-delete':
+          applyMutationSetter(body, binding, sourceFile, adapter);
+          break;
+        case 'subscription-bind':
+          applySubscriptionBind(body, binding, sourceFile, adapter);
+          break;
+        default:
+          // Pass templates from plan to default strategy
+          (binding as any).loadingTemplate = plan.loadingTemplate;
+          (binding as any).errorTemplate = plan.errorTemplate;
+          applyDefaultStrategy(body, binding, sourceFile, adapter);
+          break;
       }
     }
   }
 }
 
-function insertAfterLastHook(body: Node, statement: string) {
-  const statements = (body as any).getStatements();
-  let lastHookIndex = -1;
-  
-  for (let i = 0; i < statements.length; i++) {
-    if (statements[i].getText().includes('use')) {
-      lastHookIndex = i;
+function getComponentBody(comp: any): Node | undefined {
+    if (Node.isFunctionDeclaration(comp)) return comp.getBody();
+    if (Node.isVariableDeclaration(comp)) {
+        const init = comp.getInitializer();
+        if (init && Node.isArrowFunction(init)) return init.getBody();
     }
-  }
-  
-  (body as any).insertStatements(lastHookIndex + 1, statement);
-}
-
-function insertStatementAfter(body: Node, afterText: string, statement: string) {
-  const statements = (body as any).getStatements();
-  const index = statements.findIndex((s: any) => s.getText().includes(afterText));
-  if (index !== -1) {
-    (body as any).insertStatements(index + 1, statement);
-  }
-}
-
-function getComponentBody(node: any): Node | undefined {
-  if (Node.isFunctionDeclaration(node)) return node.getBody();
-  if (Node.isVariableDeclaration(node)) {
-    const init = node.getInitializer();
-    if (init && Node.isArrowFunction(init)) return init.getBody();
-  }
-  return undefined;
+    return undefined;
 }

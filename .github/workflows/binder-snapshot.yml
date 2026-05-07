@@ -1,0 +1,92 @@
+name: Binder Contract Lifecycle
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install Dependencies
+        run: npm install
+        
+      - name: Build Binder
+        run: npm run build
+        
+      - name: Create Binder Snapshot
+        run: ./dist/cli.js snapshot
+        env:
+          BACKEND_VERSION: ${{ github.sha }}
+          FRONTEND_VERSION: ${{ github.sha }}
+          
+      - name: Generate Spec Dashboard
+        run: ./dist/cli.js dashboard
+        
+      - name: Archive Contract Assets
+        uses: actions/upload-artifact@v3
+        with:
+          name: binder-contract-assets
+          path: |
+            .binder/snapshots/
+            binder/dashboard.html
+
+  drift-gatekeeper:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install Dependencies
+        run: npm install
+      - name: Build Binder
+        run: npm run build
+      
+      - name: Check for Contract Drift
+        id: drift
+        run: |
+          if ./dist/cli.js drift; then
+            echo "DRIFT_STATUS=verified" >> $GITHUB_ENV
+          else
+            echo "DRIFT_STATUS=failed" >> $GITHUB_ENV
+          fi
+
+      - name: Create Automated Snapshot
+        run: ./dist/cli.js snapshot --status ${{ env.DRIFT_STATUS }}
+        env:
+          BACKEND_VERSION: ${{ github.sha }}
+          FRONTEND_VERSION: ${{ github.sha }}
+
+      - name: Post Drift Comment
+        if: failure() || env.DRIFT_STATUS == 'failed'
+        uses: peter-evans/create-or-update-comment@v2
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## ⚠️ Binder Contract Drift Detected
+            I detected a breaking change between your Backend Schema and Frontend Code.
+            
+            ### 🛠️ Suggested Fix
+            Run the following command locally to resync your hooks:
+            ```bash
+            binder drift
+            # then for affected endpoints:
+            binder scaffold <endpoint> --write
+            ```
+            
+            View the full report in the **Binder Spec Dashboard** artifact.

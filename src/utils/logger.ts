@@ -18,7 +18,7 @@ export const logger = {
   warning: (msg: string) => console.log(pc.yellow('⚠'), msg),
   debug: (msg: string) => console.log(pc.gray('DEBUG:'), msg),
   
-  // Step with tech prefix
+  // Step with tech prefix.
   step: (label: string, detail?: string) => {
     const timestamp = new Date().toISOString().split('T')[1].slice(0, 8);
     const prefix = pc.gray(`[${timestamp}]`);
@@ -26,7 +26,7 @@ export const logger = {
     console.log(`${prefix} ${lbl}${detail ? ' ' + pc.gray(detail) : ''}`);
   },
 
-  // Spinner for async operations
+  // Spinner for async operations.
   startSpinner: (text: string): Ora => {
     if (currentSpinner) currentSpinner.stop();
     currentSpinner = ora({

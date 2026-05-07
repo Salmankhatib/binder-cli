@@ -39,7 +39,7 @@ export function contextualMatch(
   });
 }
 
-function extractEntity(name: string): string {
+export function extractEntity(name: string): string {
     return normalizeName(name)
         .replace(/^(get|fetch|load|create|update|delete|remove|post|put|patch)/i, '')
         .replace(/(list|data|items|collection|results|array|set)$/i, '');
