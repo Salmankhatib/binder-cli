@@ -25,7 +25,7 @@
 
 The heart of Binder is the **Surgical Binding Engine**. 
 - **The Problem**: You've built a beautiful UI with mock data (`const users = [{...}]`). Now you have to spend hours deleting that code and replacing it with `useQuery`, types, and error handling.
-- **The Binder Solution**: Run `binder bind src/MyPage.tsx`. Binder uses AST surgery to surgically swap your mocks for real API hooks, ensuring 100% type safety and zero manual plumbing.
+- **The Binder Solution**: Run `binder bind src/MyPage.tsx`. Binder uses AST surgery to surgically swap your mocks for real API hooks, ensuring type safety and zero manual plumbing.
 
 ---
 
@@ -43,7 +43,7 @@ Turn your OpenAPI or tRPC schema into a living, enforced contract.
 - **Deployment Guard**: A CI sentinel that physically blocks deployments if the frontend-backend contract is unverified.
 
 ### 3. 🏗️ Pattern-Driven Scaffolding
-Generate production-ready code in seconds, not hours.
+Generate code in seconds, not hours.
 - **Full-Stack Scaffolding**: Generates Zod schemas, TypeScript types, and React components in one go.
 - **Consistency**: Uses your team's exact coding patterns from `.binder/patterns/`.
 
