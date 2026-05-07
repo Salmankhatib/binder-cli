@@ -1,4 +1,5 @@
 # 🔗 Binder: The Sovereign Contract Engine
+```text
 ```html
 <div align="center">
 <pre>
