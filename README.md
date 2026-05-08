@@ -16,7 +16,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/%3C%2F%3E-TypeScript-%23007acc.svg)](https://www.typescriptlang.org/)
-[![Enterprise Ready](https://img.shields.io/badge/Enterprise-Ready-green.svg)](#)
 
 ---
 
