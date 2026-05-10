@@ -13,6 +13,7 @@ import { buildRepositoryImpactMap } from '../analysis/globalIndex.js';
 import { TrpcRouterAnalyzer, ProcedureInfo } from '../analysis/trpcAnalyzer.js';
 import { MutationAnalyzer, MutationTemplate } from '../analysis/mutationAnalyzer.js';
 import { HookIndexer } from '../analysis/hookIndexer.js';
+import { ProjectManager } from '../engine/projectManager.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
 import type { BindingPlan, Binding } from '../common/types.js';
@@ -39,13 +40,9 @@ export async function safeBind(
   const sessionManager = new SessionManager();
 
   const tsConfigPath = findNearestTsConfig(dirname(filePath));
-  const project = new Project({
-    tsConfigFilePath: tsConfigPath || undefined,
-    skipAddingFilesFromTsConfig: !tsConfigPath,
-    compilerOptions: { jsx: 4, allowJs: true, esModuleInterop: true }
-  });
-  
-  const sourceFile = project.addSourceFileAtPath(filePath);
+  const projectManager = ProjectManager.getInstance(tsConfigPath || undefined);
+  const project = projectManager.getProject();
+  const sourceFile = projectManager.getSourceFile(filePath);
   
   let targetHooks = hookNames;
   let apiContent = "";

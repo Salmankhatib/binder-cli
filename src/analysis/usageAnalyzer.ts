@@ -1,5 +1,5 @@
 import { Node, SyntaxKind, Identifier } from 'ts-morph';
-import { UsageContext } from '../analysis/usageFinder.js';
+import { UsageContext } from './usageFinder.js';
 
 export type UsagePattern = 
   | 'useState-init' 

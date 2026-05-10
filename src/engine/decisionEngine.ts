@@ -9,8 +9,8 @@ import { OptionsGenerator } from '../human/optionsGenerator.js';
 import { TodoGenerator } from '../patterns/todo/todoGenerator.js';
 import { LearningAccelerator } from '../learning/accelerator.js';
 import { Binding } from '../common/types.js';
-import { analyzeUsage } from '../analyze/usageAnalyzer.js';
-import { analyzePropDrillingRisk } from '../analyze/propAnalyzer.js';
+import { analyzeUsage } from '../analysis/usageAnalyzer.js';
+import { analyzePropDrillingRisk } from '../analysis/propAnalyzer.js';
 import { InputInferenceEngine } from '../analysis/inputInference.js';
 import { OllamaFallback } from '../llm/fallback.js';
 

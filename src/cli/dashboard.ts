@@ -205,7 +205,7 @@ export async function runDashboard() {
       }
     </script>
 </body>
-</html>
+</html>`;
 
   const outDir = resolve(process.cwd(), 'binder');
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });

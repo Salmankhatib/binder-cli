@@ -1,14 +1,14 @@
 # 🔗 Binder: The Sovereign Contract Engine
 ```text
-╔═════════════════════════════════════════════════════╗
-║    ██████╗ ██╗███╗   ██╗██████╗ ███████╗██████╗     ║
-║    ██╔══██╗██║████╗  ██║██╔══██╗██╔════╝██╔══██╗    ║
-║    ██████╔╝██║██╔██╗ ██║██║  ██║█████╗  ██████╔╝    ║
-║    ██╔══██╗██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗    ║
-║    ██████╔╝██║██║ ╚████║██████╔╝███████╗██║  ██║    ║
-║    ╚═════╝ ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═     ║
-╚═════════════════════════════════════════════════════╝
-             MOCK-TO-API BINDING ENGINE
+                                          ╔═════════════════════════════════════════════════════╗
+                                          ║    ██████╗ ██╗███╗   ██╗██████╗ ███████╗██████╗     ║
+                                          ║    ██╔══██╗██║████╗  ██║██╔══██╗██╔════╝██╔══██╗    ║
+                                          ║    ██████╔╝██║██╔██╗ ██║██║  ██║█████╗  ██████╔╝    ║
+                                          ║    ██╔══██╗██║██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗    ║
+                                          ║    ██████╔╝██║██║ ╚████║██████╔╝███████╗██║  ██║    ║
+                                          ║    ╚═════╝ ╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═     ║
+                                          ╚═════════════════════════════════════════════════════╝
+                                                        MOCK-TO-API BINDING ENGINE
 ```
 
 **Binder** is a CLI tool and Dashboard platform that automates the most painful part of frontend development: 
@@ -16,26 +16,31 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/%3C%2F%3E-TypeScript-%23007acc.svg)](https://www.typescriptlang.org/)
-[![Enterprise Ready](https://img.shields.io/badge/Enterprise-Ready-green.svg)](#)
 
 ---
 
 ## 🌟 The Binder Core: "Mock-to-Real"
 
-The heart of Binder is the **Surgical Binding Engine**. 
+The heart of Binder is the **Binding Engine**. 
 - **The Problem**: You've built a beautiful UI with mock data (`const users = [{...}]`). Now you have to spend hours deleting that code and replacing it with `useQuery`, types, and error handling.
 - **The Binder Solution**: Run `binder bind src/MyPage.tsx`. Binder uses AST surgery to surgically swap your mocks for real API hooks, ensuring type safety and zero manual plumbing.
+  
+- **Drift Detection & Remediation**: Binder monitors for schema changes in real-time. If the backend drifts from the contract, the engine detects it immediately and offers automated refactoring to sync the frontend back to the source of truth.
+
+-**Deployment Safety & Rollbacks**: By mapping specific backend versions to compatible frontend commits, Binder provides a clear compatibility matrix. It blocks breaking merges at the CI level and ensures safe, predictable rollbacks by knowing exactly which versions are contract-compliant.
 
 ---
 
 ## 🚀 Key Pillars
 
-### 1. ⚡ Autonomous Binding
-Deterministic AST analysis swaps your mock variables for real API hooks.
-- **Deep Data Flow**: Traces data through Props, Redux, and Zustand to find every downstream consumer.
-- **Transactional Safety**: If a rewrite breaks your build, Binder reverts it automatically.
+### 1. ⚡ Safe automatic Binding
+Deterministic AST analysis swaps mock variables for real API hooks with a compiler-gate guarantee.
+- **Human-in-the-Loop**: Automatically swaps trivial cases, pauses for your input on confusing mocks, and skips complex logic with clean TODO instructions.
+- **Compiler-Verified Rewrites**: Every binding is dry-run through your compiler; if the code doesn't build, Binder aborts the write to protect your source
 
-### 2. 🛡️ Sovereign Contract Governance
+Compiler-Verified Rewrites: Every binding is dry-run through your compiler; if the code doesn't build, Binder aborts the write to protect your source.
+
+### 2. 🛡️ Contract Governance
 Turn your OpenAPI or tRPC schema into a living, enforced contract.
 - **Drift Detection**: Catch field-level mismatches before they hit a Pull Request.
 - **Autonomous Repair**: `binder sync --apply` automatically refactors your code when the backend renames a field.

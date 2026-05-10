@@ -1,6 +1,6 @@
 // src/patterns/todo/todoGenerator.ts
 import { MockFinding, Usage, TodoContext } from '../../engine/types.js';
-import { analyzeUsage } from '../../analyze/usageAnalyzer.js';
+import { analyzeUsage } from '../../analysis/usageAnalyzer.js';
 
 export class TodoGenerator {
   generate(mock: MockFinding, usages: Usage[], patternResult: any, matchResult: any): TodoContext {

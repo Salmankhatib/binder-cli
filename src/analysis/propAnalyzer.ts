@@ -1,5 +1,5 @@
 import { Project, SourceFile, SyntaxKind, Node, Identifier } from 'ts-morph';
-import { PropDrillResult } from '../analysis/propTracer.js';
+import { PropDrillResult } from './propTracer.js';
 
 /**
  * Analyzes if a mock is passed as a prop and determines the risk level.
