@@ -1,17 +1,18 @@
 import { logger } from '../utils/logger.js';
 import { loadConfig } from '../config/loader.js';
 import { runOrval } from '../generate/orvalRunner.js';
-import { scanMocks } from '../scan/mockScanner.js';
-import { resolve } from 'path';
+import { resolve, join } from 'path';
+import { readFileSync, readdirSync, existsSync } from 'fs';
 import pc from 'picocolors';
-import { MigrationOrchestrator } from '../orchestrator/migrationOrchestrator.js';
+import pkg from 'enquirer';
+const { Select } = pkg;
+import { MigrationOrchestrator, RenameIntent } from '../orchestrator/migrationOrchestrator.js';
 import { SchemaDiffer } from '../analysis/schemaDiffer.js';
-import { Project } from 'ts-morph';
-import { readdirSync } from 'fs';
+import { ProjectManager } from '../engine/projectManager.js';
 
 /**
- * binder sync pulls the latest schema and scans for new mocks.
- * If --apply is provided, it attempts to refactor drifts automatically.
+ * binder sync pulls the latest schema and scans for structural drift.
+ * It presents a migration plan for human review before applying AST surgery.
  */
 export async function runSync(options: { apply?: boolean } = {}) {
   const config = await loadConfig('./binder.config.json');
@@ -25,38 +26,73 @@ export async function runSync(options: { apply?: boolean } = {}) {
     return;
   }
 
-  if (options.apply) {
-    logger.system('Applying Sovereign Intelligence Migration...');
-    
-    // 1. Get the previous schema from the latest snapshot
-    const snapshotsDir = resolve(process.cwd(), '.binder', 'snapshots');
-    const files = readdirSync(snapshotsDir).filter(f => f.endsWith('.json')).sort();
-    
-    if (files.length > 0) {
-      const lastSnapshot = JSON.parse(readFileSync(join(snapshotsDir, files[files.length - 1]), 'utf-8'));
-      const oldSchema = lastSnapshot.backend?.schema; // Assuming schema is stored in snapshot
+  // 1. Get the previous schema from the latest snapshot
+  const snapshotsDir = resolve(process.cwd(), '.binder', 'snapshots');
+  if (!existsSync(snapshotsDir) || !readdirSync(snapshotsDir).length) {
+    logger.info('No snapshots found. Run `binder snapshot` first to enable drift detection.');
+    return;
+  }
 
-      if (oldSchema) {
-        const newSchema = JSON.parse(readFileSync(resolve(process.cwd(), config.backend.schemaPath), 'utf-8'));
-        const differ = new SchemaDiffer();
-        const renames = differ.detectRenames(oldSchema, newSchema);
+  const files = readdirSync(snapshotsDir).filter(f => f.endsWith('.json')).sort();
+  const lastSnapshot = JSON.parse(readFileSync(join(snapshotsDir, files[files.length - 1]), 'utf-8'));
+  const oldSchema = lastSnapshot.backend?.schema; 
 
-        if (renames.length > 0) {
-          logger.info(`Detected ${renames.length} field renames. Starting project-wide refactor...`);
-          const project = new Project();
-          project.addSourceFilesAtPaths('src/**/*.ts*');
-          const orchestrator = new MigrationOrchestrator(project);
+  if (oldSchema) {
+    const newSchema = JSON.parse(readFileSync(resolve(process.cwd(), config.backend.schemaPath), 'utf-8'));
+    const differ = new SchemaDiffer();
+    const renames = differ.detectRenames(oldSchema, newSchema);
 
-          for (const intent of renames) {
-            await orchestrator.applyRename(intent);
-          }
+    if (renames.length > 0) {
+      logger.info(`Detected ${renames.length} potential field renames (drifts).`);
+      
+      const projectManager = ProjectManager.getInstance();
+      const project = projectManager.getProject();
+      project.addSourceFilesAtPaths('src/**/*.ts*');
+      
+      const orchestrator = new MigrationOrchestrator(project);
+      const approvedRenames: RenameIntent[] = [];
 
-          await project.save();
-          logger.success('Autonomous Migration Complete.');
-        } else {
-          logger.info('No renames detected to apply.');
+      for (const intent of renames) {
+        console.log(`\n${pc.bold(pc.yellow('Proposed Migration:'))}`);
+        console.log(`  Target Hook: ${pc.cyan(intent.hookName)}`);
+        console.log(`  Field Drift: ${pc.red(intent.oldFieldName)} → ${pc.green(intent.newFieldName)}`);
+        console.log(`  Confidence:  ${(intent.confidence * 100).toFixed(0)}% (${intent.reason})`);
+
+        const action = await new Select({
+          message: 'What would you like to do?',
+          choices: [
+            { name: 'apply', message: 'Apply this refactor' },
+            { name: 'edit', message: 'Edit rename intent' },
+            { name: 'skip', message: 'Skip this one' }
+          ]
+        }).run();
+
+        if (action === 'apply') {
+          approvedRenames.push(intent);
+        } else if (action === 'edit') {
+          const { newName } = await (pkg as any).prompt({
+            type: 'input',
+            name: 'newName',
+            message: `Enter correct field name for ${pc.cyan(intent.oldFieldName)}:`,
+            initial: intent.newFieldName
+          });
+          intent.newFieldName = newName;
+          approvedRenames.push(intent);
         }
       }
+
+      if (approvedRenames.length > 0) {
+        logger.startSpinner(`Orchestrating ${approvedRenames.length} approved migrations...`);
+        for (const intent of approvedRenames) {
+          await orchestrator.applyRename(intent);
+        }
+        await project.save();
+        logger.stopSpinner(true, 'Sovereign Migration Complete.');
+      } else {
+        logger.info('No migrations were approved.');
+      }
+    } else {
+      logger.info('No structural drifts detected.');
     }
   }
 

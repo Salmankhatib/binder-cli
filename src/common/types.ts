@@ -16,6 +16,7 @@ export interface Binding {
     hasOnSuccess: boolean;
     hasOnError: boolean;
   };
+  manualCode?: string;
 }
 
 export interface BindingPlan {
@@ -31,4 +32,27 @@ export interface TestResult {
   success: boolean;
   errors?: Array<{ line: number; message: string; type: string }>;
   fixesApplied?: number;
+}
+
+export type StateProvider = 'redux' | 'zustand' | 'context';
+
+export interface DataFlowNode {
+  id: string;
+  kind: 'write' | 'read';
+  provider: StateProvider;
+  sliceKey: string;
+  dataField: string;
+  file: string;
+  line: number;
+}
+
+export interface DataFlowEdge {
+  from: string;
+  to: string;
+  via: string;
+}
+
+export interface DataFlowGraph {
+  nodes: Map<string, DataFlowNode>;
+  edges: DataFlowEdge[];
 }

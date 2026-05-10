@@ -35,11 +35,11 @@ export class KeyboardHandler {
           stdin.pause();
           rl.close();
           resolve('todo');
-        } else if (key === 's' || key === 'S') {
+        } else if (key === 'm' || key === 'M') {
           stdin.setRawMode(false);
           stdin.pause();
           rl.close();
-          resolve('skip');
+          resolve('manual');
         } else if (key === '\u0003') { // Ctrl+C
           process.exit(0);
         }

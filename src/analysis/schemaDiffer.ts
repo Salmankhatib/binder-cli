@@ -32,10 +32,13 @@ export class SchemaDiffer {
             if (oldProps[newKey]) continue; // New key was already there
 
             if (oldProps[oldKey].type === newProps[newKey].type) {
+              const confidence = oldKey.toLowerCase().includes(newKey.toLowerCase()) || newKey.toLowerCase().includes(oldKey.toLowerCase()) ? 0.8 : 0.4;
               intents.push({
                 hookName: this.deriveHookName(oldOp, path, method),
                 oldFieldName: oldKey,
-                newFieldName: newKey
+                newFieldName: newKey,
+                confidence,
+                reason: confidence > 0.5 ? 'Strong name similarity' : 'Type match only (risky)'
               });
             }
           }
@@ -53,21 +56,41 @@ export class SchemaDiffer {
     let content = response.content?.['application/json']?.schema;
     if (!content) return {};
 
-    if (content.$ref) {
-      content = this.resolveRef(schema, content.$ref);
-    }
+    content = this.resolveSchema(schema, content);
     
     if (content.type === 'array' && content.items) {
-      content = content.items.$ref ? this.resolveRef(schema, content.items.$ref) : content.items;
+      content = this.resolveSchema(schema, content.items);
     }
 
-    return content.properties || {};
+    const properties = content.properties || {};
+    // Recursively resolve all properties
+    const resolvedProps: Record<string, any> = {};
+    for (const key in properties) {
+        resolvedProps[key] = this.resolveSchema(schema, properties[key]);
+    }
+
+    return resolvedProps;
+  }
+
+  /**
+   * Recursively resolves $ref nodes within a schema.
+   */
+  private resolveSchema(schema: any, node: any): any {
+    if (!node || typeof node !== 'object') return node;
+    
+    if (node.$ref) {
+      const resolved = this.resolveRef(schema, node.$ref);
+      return this.resolveSchema(schema, resolved);
+    }
+    
+    return node;
   }
 
   private resolveRef(schema: any, ref: string): any {
     const path = ref.replace('#/', '').split('/');
     let current = schema;
     for (const segment of path) {
+      if (!current[segment]) return {};
       current = current[segment];
     }
     return current;

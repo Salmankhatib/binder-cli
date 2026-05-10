@@ -122,6 +122,8 @@ export class PatternRegistry {
       new MutationSetterPattern(),
       new SubscriptionRefreshPattern(),
       new UseStateMockInitPattern(),
+      new SimpleFilterPattern(),
+      new SimpleSortPattern(),
     ];
 
     this.humanPatterns = [
@@ -139,9 +141,7 @@ export class PatternRegistry {
       new AuthorizationEmbeddedPattern(),
       new MockWithLogicPattern(),
       new SlicePaginationPattern() as any,
-      new SimpleFilterPattern() as any,
       new ReduceAccumulatorPattern() as any,
-      new SimpleSortPattern() as any,
       new ComputedChainPattern() as any,
       new DefaultParameterPattern() as any,
       new ComputedDerivativePattern() as any,

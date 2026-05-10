@@ -246,8 +246,8 @@ export class DecisionEngine {
     // Auto if:
     // 1. Pristine Case: Very safe pattern + any match + high total score
     // 2. Strong Confidence: Any auto pattern + strong hook match + high score
-    const isPristine = isVerySafePattern && hasAnyMatch && finalScore >= 70;
-    const isHighConfidence = isAutoPattern && isStrongMatch && finalScore >= 75;
+    const isPristine = isVerySafePattern && hasAnyMatch && finalScore >= 65;
+    const isHighConfidence = isAutoPattern && isStrongMatch && finalScore >= 70;
 
     // Safety Gate: If dangerous usage detected, force higher bar
     let shouldAuto = (isPristine || isHighConfidence) && !propRisk.isHighRisk;

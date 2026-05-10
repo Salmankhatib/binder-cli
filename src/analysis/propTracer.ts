@@ -1,4 +1,5 @@
 // src/analysis/propTracer.ts
+export const BINDER_V2 = true;
 import { Project, SyntaxKind, Node, Identifier, SourceFile } from 'ts-morph';
 import { GlobalStateTracer, DataFlowNode } from './globalStateTracer.js';
 
@@ -35,9 +36,13 @@ export interface DataFlowResult {
 // Prop Drilling Tracer (existing, unchanged in logic)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * tracePropDrilling semantically follows a mock variable as it is passed 
+ * through React components via JSX props.
+ */
 export async function tracePropDrilling(
   mockName: string,
-  sourceFile: any,
+  sourceFile: SourceFile,
   project: Project,
   depth: number = 0,
   maxDepth: number = 5,
@@ -46,31 +51,38 @@ export async function tracePropDrilling(
   const results: PropDrillResult[] = [];
   if (depth >= maxDepth) return results;
 
+  // 1. Find usages of the mock in the current file
   const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
-    .filter((id: Identifier) => id.getText() === mockName);
+    .filter(id => id.getText() === mockName);
 
   for (const id of identifiers) {
     const jsxAttr = id.getFirstAncestorByKind(SyntaxKind.JsxAttribute);
-    if (!jsxAttr) continue;
+    if (!jsxAttr || !Node.isJsxAttribute(jsxAttr)) continue;
     
-    const propName = (jsxAttr as any).getNameNode?.().getText() || (jsxAttr as any).getName?.() || 'unknown';
-    const openingEl = (jsxAttr as any).getFirstAncestorByKind(SyntaxKind.JsxOpeningElement) || 
-                      (jsxAttr as any).getFirstAncestorByKind(SyntaxKind.JsxSelfClosingElement);
+    // We found a place where the mock is passed as a prop
+    const propName = jsxAttr.getNameNode().getText();
+    const openingEl = jsxAttr.getFirstAncestorByKind(SyntaxKind.JsxOpeningElement) || 
+                      jsxAttr.getFirstAncestorByKind(SyntaxKind.JsxSelfClosingElement);
     
     if (!openingEl) continue;
     
     const componentName = (openingEl as any).getTagNameNode().getText();
     
+    // 2. Resolve the target component's definition
     let targetFile = 'unknown';
-    let targetSourceFile = null;
+    let targetSourceFile: SourceFile | undefined;
+    let componentDeclaration: Node | undefined;
+
     try {
         const definitions = (openingEl as any).getTagNameNode().getDefinitions();
         if (definitions && definitions.length > 0) {
-            targetFile = definitions[0].getSourceFile().getFilePath();
+            const def = definitions[0];
+            targetFile = def.getSourceFile().getFilePath();
             targetSourceFile = project.getSourceFile(targetFile);
+            componentDeclaration = def.getDeclarationNode();
         }
     } catch (e) {
-        // Fallback for isolated files
+        // Fallback for missing definitions
     }
 
     const drillId = `${sourceFile.getFilePath()}->${targetFile}:${propName}`;
@@ -84,13 +96,68 @@ export async function tracePropDrilling(
         componentName
     });
 
-    if (targetSourceFile && targetFile !== 'unknown') {
-        const nextDrills = await tracePropDrilling(propName, targetSourceFile, project, depth + 1, maxDepth, visited);
-        results.push(...nextDrills);
+    // 3. Semantic Hand-off: Find the local name of this prop in the child component
+    if (targetSourceFile && componentDeclaration) {
+        const localMockNameInChild = findLocalPropName(componentDeclaration, propName);
+        
+        if (localMockNameInChild) {
+            const nextDrills = await tracePropDrilling(
+                localMockNameInChild, 
+                targetSourceFile, 
+                project, 
+                depth + 1, 
+                maxDepth, 
+                visited
+            );
+            results.push(...nextDrills);
+        }
     }
   }
   
   return results;
+}
+
+/**
+ * Identifies how a prop is named inside a component's body.
+ * Handles destructuring: ({ user }) => ... and (props) => ... (partially)
+ */
+function findLocalPropName(componentNode: Node, targetProp: string): string | null {
+    let params: any[] = [];
+    
+    if (Node.isFunctionDeclaration(componentNode) || Node.isArrowFunction(componentNode) || Node.isFunctionExpression(componentNode)) {
+        params = componentNode.getParameters();
+    }
+
+    if (params.length === 0) return null;
+
+    const firstParam = params[0];
+    const nameNode = firstParam.getNameNode();
+
+    // Case 1: Destructured props - const MyComp = ({ user: u }) => ...
+    if (Node.isObjectBindingPattern(nameNode)) {
+        const element = nameNode.getElements().find(el => {
+            const propName = el.getPropertyNameNode()?.getText() || el.getNameNode().getText();
+            return propName === targetProp;
+        });
+        if (element) {
+            return element.getNameNode().getText();
+        }
+    }
+
+    // Case 2: Named props object - const MyComp = (props) => ...
+    // We return the prop name itself but the tracer would need to look for `props.${targetProp}`
+    // For now, we return the targetProp as a heuristic if the param is 'props' or similar.
+    if (Node.isIdentifier(nameNode)) {
+        const paramName = nameNode.getText();
+        if (paramName.toLowerCase().includes('props')) {
+            // This is a limitation: the next level of tracePropDrilling will look for 
+            // a global variable matching the name, which might fail if it's accessed via props.user.
+            // TODO: Enhance tracer to support property-access-based mock tracking.
+            return null; 
+        }
+    }
+
+    return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

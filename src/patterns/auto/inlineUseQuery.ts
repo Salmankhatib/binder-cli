@@ -19,14 +19,17 @@ export class InlineUseQueryPattern extends AutoPattern {
         current = current.getParent();
     }
 
-    if (!isInside || usage.hasConditional || usage.transformations.length > 0) {
+    const transformations = usage.transformations;
+    const isStandardPromise = transformations.length === 1 && transformations[0] === 'resolve';
+    
+    if (!isInside || usage.hasConditional || (transformations.length > 0 && !isStandardPromise)) {
       return { matches: false, confidence: 0, strategy: 'default' };
     }
 
     return {
       matches: true,
       confidence: 0.9,
-      strategy: 'default'
+      strategy: 'migrate-to-usequery'
     };
   }
 }

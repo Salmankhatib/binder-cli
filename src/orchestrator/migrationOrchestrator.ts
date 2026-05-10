@@ -7,6 +7,8 @@ export interface RenameIntent {
   hookName: string;
   oldFieldName: string;
   newFieldName: string;
+  confidence: number;
+  reason: string;
 }
 
 /**
@@ -24,7 +26,7 @@ export class MigrationOrchestrator {
   /**
    * Performs a project-wide rename of a field derived from a specific hook.
    */
-  async applyRename(intent: RenameIntent): Promise<{ affectedFiles: string[] }> {
+  async applyRename(intent: RenameIntent): Promise<{ affectedFiles: string[]; success: boolean }> {
     logger.startSpinner(`Orchestrating migration: ${pc.cyan(intent.oldFieldName)} → ${pc.green(intent.newFieldName)}...`);
     
     const affectedFiles = new Set<string>();
@@ -35,28 +37,28 @@ export class MigrationOrchestrator {
         .filter(id => id.getText() === intent.hookName);
 
       for (const usage of usages) {
-        // Find where the result of the hook is consumed
-        // e.g. const { data } = useUsers();
         const parent = usage.getParent();
         if (parent?.getKind() === SyntaxKind.CallExpression) {
           this.traceAndRename(usage, intent, affectedFiles);
         }
       }
       
-      // 2. Also check Zod schemas in the same file
       this.updateZodSchema(sourceFile, intent, affectedFiles);
     }
 
-    // 3. Post-Surgery Audit: verify project still compiles
+    // 2. Post-Surgery Audit: verify project still compiles
+    logger.startSpinner('Running Transactional Safety Check (Pre-flight)...');
     const diagnostics = this.project.getPreEmitDiagnostics();
+    
     if (diagnostics.length > 0) {
-      logger.stopSpinner(false, `Migration completed with ${diagnostics.length} type errors.`);
-      logger.warn('Surgery was successful but revealed downstream type conflicts. Manual review required.');
+      const errorCount = diagnostics.length;
+      logger.stopSpinner(false, `Migration completed but introduced ${pc.red(errorCount)} type errors.`);
+      logger.warn('Surgery revealed downstream type conflicts. Suggesting immediate rollback or manual review.');
+      return { affectedFiles: Array.from(affectedFiles), success: false };
     } else {
-      logger.stopSpinner(true, `Migration successful! ${affectedFiles.size} files refactored.`);
+      logger.stopSpinner(true, `Migration successful! ${affectedFiles.size} files refactored with zero errors.`);
+      return { affectedFiles: Array.from(affectedFiles), success: true };
     }
-
-    return { affectedFiles: Array.from(affectedFiles) };
   }
 
   /**
@@ -131,5 +133,40 @@ export class MigrationOrchestrator {
         affectedFiles.add(sourceFile.getFilePath());
       }
     }
+  }
+  /**
+   * High-Level Surgery: Replaces a hardcoded mock variable with a live API hook.
+   */
+  async bindMockToApi(mockName: string, filePath: string, endpoint: string): Promise<boolean> {
+    const sourceFile = this.project.getSourceFile(filePath);
+    if (!sourceFile) return false;
+
+    const varDec = sourceFile.getVariableDeclaration(mockName);
+    if (!varDec) return false;
+
+    // 1. Determine the hook name (e.g. /api/users -> useGetUsers)
+    const hookName = `useGet${endpoint.split('/').pop()?.charAt(0).toUpperCase()}${endpoint.split('/').pop()?.slice(1)}`;
+
+    // 2. Perform the replacement
+    // Before: const users = [{...}];
+    // After: const { data: users } = useGetUsers();
+    
+    const parent = varDec.getParent(); // VariableDeclarationList
+    const statement = parent?.getParent(); // VariableStatement
+
+    if (statement && Node.isVariableStatement(statement)) {
+        statement.replaceWithText(`const { data: ${mockName} } = ${hookName}();`);
+    }
+
+    // 3. Add import if missing (Heuristic: assumes hooks are available)
+    if (!sourceFile.getImportDeclaration(d => d.getText().includes(hookName))) {
+        sourceFile.addImportDeclaration({
+            moduleSpecifier: '@/hooks/api', // Standard path
+            namedImports: [hookName]
+        });
+    }
+
+    await this.project.save();
+    return true;
   }
 }

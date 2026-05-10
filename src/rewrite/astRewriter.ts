@@ -105,6 +105,7 @@ import { applyTestWrapper } from "./strategies/testWrapper.js";
 import { applyMutationSetter } from "./strategies/mutationSetter.js";
 import { applySubscriptionBind } from "./strategies/subscriptionBind.js";
 import { applyOptimisticMutation } from "./strategies/optimisticMutation.js";
+import { applyManualFix } from "./strategies/manual.js";
 import { ReactQueryAdapter } from "../adapters/reactQuery.adapter.js";
 import { TrpcAdapter } from "../adapters/trpc.adapter.js";
 
@@ -129,18 +130,27 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
     if (!body || !Node.isBlock(body)) continue;
 
     for (const binding of plan.bindings) {
-      // Clean mock name if necessary
+      // Clean mock name if necessary (MOCK_USERS -> users)
       if (binding.mockName.toUpperCase().startsWith('MOCK_') || binding.mockName.toUpperCase().startsWith('FAKE_')) {
           const cleanName = binding.mockName.replace(/^(MOCK_|FAKE_|STUB_|DUMMY_|SAMPLE_|TEST_)/i, '').toLowerCase();
-          const identifier = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
-            .find(id => id.getText() === binding.mockName);
           
-          if (identifier) {
-            identifier.rename(cleanName);
-            binding.mockName = cleanName; // Update binding object for subsequent steps
-          }
+          sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
+            .filter(id => id.getText() === binding.mockName)
+            .forEach(id => {
+                try {
+                    id.rename(cleanName);
+                } catch (e) {
+                    // Fallback for nodes that can't be renamed normally
+                    (id as any).replaceWithText(cleanName);
+                }
+            });
+            
+          binding.mockName = cleanName; 
       }
+    }
 
+    // Now proceed with normal transformations
+    for (const binding of plan.bindings) {
       const strategy = binding.strategy || 'default';
       
       logger.system(`  [Surgery] Applying strategy: ${strategy} for ${binding.mockName}`);
@@ -174,6 +184,9 @@ function transformComponents(sourceFile: SourceFile, plan: BindingPlan): void {
           break;
         case 'subscription-bind':
           applySubscriptionBind(body, binding, sourceFile, adapter);
+          break;
+        case 'manual':
+          applyManualFix(body, binding);
           break;
         default:
           // Pass templates from plan to default strategy

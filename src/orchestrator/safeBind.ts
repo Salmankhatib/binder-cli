@@ -132,12 +132,13 @@ Once the frontend components are bound to hooks, you should remove this handler 
       filePlan.bindings.push(decision.binding!);
       results.successes.push({ mockName: mock.name, hookName: decision.binding!.hookName });
       results.auto++;
-    } else if (decision.type === 'human' && options.interactive) {
-      const { choice, apply } = await sessionManager.resolveHumanDecision(mock, decision);
+    } else if ((decision.type === 'human' || decision.type === 'todo') && options.interactive) {
+      const { choice, apply, manualCode } = await sessionManager.resolveHumanDecision(mock, decision);
       if (apply) {
         const binding: Binding = {
           ...decision.binding!,
-          strategy: choice.id
+          strategy: choice.id,
+          manualCode: manualCode
         };
         filePlan.bindings.push(binding);
         results.successes.push({ mockName: mock.name, hookName: binding.hookName });

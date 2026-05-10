@@ -6,6 +6,7 @@ export default defineConfig({
   shims: true,
   clean: true,
   target: 'node20',
+  jsx: false,
   banner: {
     js: '#!/usr/bin/env node',
   },

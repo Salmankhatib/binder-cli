@@ -50,7 +50,7 @@ export class MatchScorer {
       // console.log(`[DEBUG] Hook: ${name}, h: ${h}, s: ${s}, c: ${c}`);
 
       // BOOST: Ensemble favors the best signal. tRPC is very strong signal.
-      let weightedScore = Math.max(h * 1.1, s * 1.2, c * 0.9); 
+      let weightedScore = Math.max(h * 1.2, s * 1.3, c * 1.0); 
 
       // PRIORITY 2: Negative Scoring / Penalties
       if (usageProfile) {

@@ -14,14 +14,24 @@ export function applyMigrateToUseQuery(
   const hookCall = adapter.generateQueryCall(binding.hookName, binding.inferredInput);
   const hookDecl = `const { ${adapter.dataProperty}: ${hookVar}, ${adapter.loadingProperty}: ${hookVar}Loading } = ${hookCall};`;
   
-  insertAfterLastHook(body, hookDecl);
-  
-  // Find and remove the useState declaration for this mock
-  body.getVariableDeclarations().forEach(decl => {
-    if (decl.getInitializer()?.getText() === binding.mockName) {
-        decl.getFirstAncestorByKind(SyntaxKind.VariableStatement)?.remove();
-    }
+  // Find the existing useQuery call that wraps the mock and remove it
+  let replaced = false;
+  body.getDescendantsOfKind(SyntaxKind.CallExpression).forEach(call => {
+      if (call.getExpression().getText() === 'useQuery') {
+          const text = call.getText();
+          if (text.includes(binding.mockName) || text.includes(hookVar)) {
+              const statement = call.getFirstAncestorByKind(SyntaxKind.VariableStatement);
+              if (statement) {
+                  statement.replaceWithText(hookDecl);
+                  replaced = true;
+              }
+          }
+      }
   });
+
+  if (!replaced) {
+      insertAfterLastHook(body, hookDecl);
+  }
 }
 
 function insertAfterLastHook(body: Block, statement: string): void {
