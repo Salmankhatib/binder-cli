@@ -4,3 +4,4 @@ dist/
 .binder/
 *.log
 package-lock.json
+MCP_implementation.txt
