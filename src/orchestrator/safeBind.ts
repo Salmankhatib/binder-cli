@@ -202,7 +202,8 @@ Once the frontend components are bound to hooks, you should remove this handler 
                   code: rewritten,
                   mockName: filePlan.bindings[0]?.mockName || 'unknown',
                   hookName: filePlan.bindings[0]?.hookName || 'unknown',
-                  diagnostics
+                  diagnostics,
+                  projectGraph: projectManager.getProjectGraph()
               });
               
               if (healed.success && healed.newCode) {

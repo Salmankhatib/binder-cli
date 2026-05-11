@@ -4,6 +4,12 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { logger } from "../utils/logger.js";
 import type { Config } from "../config/types.js";
 
+export interface ProjectGraph {
+    files: string[];
+    dependencies: Record<string, string[]>;
+    tsConfig?: any;
+}
+
 export interface RepairContext {
     filePath: string;
     code: string;
@@ -11,6 +17,7 @@ export interface RepairContext {
     hookName: string;
     errorType?: string;
     diagnostics?: string[];
+    projectGraph?: ProjectGraph;
 }
 
 export interface RepairResult {

@@ -43,6 +43,25 @@ export class ProjectManager {
     }
 
     /**
+     * Generates a project-wide context graph for MCP consumption.
+     */
+    public getProjectGraph(): { files: string[], dependencies: Record<string, string[]>, tsConfig: any } {
+        const files = this.project.getSourceFiles().map(sf => sf.getFilePath());
+        const dependencies: Record<string, string[]> = {};
+
+        for (const sf of this.project.getSourceFiles()) {
+            const imports = sf.getImportDeclarations().map(i => i.getModuleSpecifierValue());
+            dependencies[sf.getFilePath()] = imports;
+        }
+
+        return {
+            files,
+            dependencies,
+            tsConfig: this.project.getCompilerOptions()
+        };
+    }
+
+    /**
      * Retrieves or adds a source file from the project.
      * Automatically refreshes from disk to ensure AST accuracy.
      */
