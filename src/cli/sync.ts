@@ -9,6 +9,8 @@ const { Select } = pkg;
 import { MigrationOrchestrator, RenameIntent } from '../orchestrator/migrationOrchestrator.js';
 import { SchemaDiffer } from '../analysis/schemaDiffer.js';
 import { ProjectManager } from '../engine/projectManager.js';
+import { BinderMCP } from '../mcp/client.js';
+import { SurgeryOrchestrator } from '../orchestrator/surgeryOrchestrator.js';
 
 /**
  * binder sync pulls the latest schema and scans for structural drift.
@@ -16,6 +18,10 @@ import { ProjectManager } from '../engine/projectManager.js';
  */
 export async function runSync(options: { apply?: boolean } = {}) {
   const config = await loadConfig('./binder.config.json');
+  const mcp = new BinderMCP();
+  await mcp.initialize(config);
+  
+  const orchestrator = new SurgeryOrchestrator(config, mcp);
   
   logger.startSpinner('🔄 Syncing API Infrastructure...');
   try {
@@ -83,9 +89,23 @@ export async function runSync(options: { apply?: boolean } = {}) {
 
       if (approvedRenames.length > 0) {
         logger.startSpinner(`Orchestrating ${approvedRenames.length} approved migrations...`);
+        const migrationOrch = new MigrationOrchestrator(project);
         for (const intent of approvedRenames) {
-          await orchestrator.applyRename(intent);
+          await migrationOrch.applyRename(intent);
         }
+
+        // Post-migration safety check & formatting via Surgical Orchestrator
+        const affectedFiles = project.getSourceFiles().filter(sf => sf.getUnsavedChanges() !== undefined);
+        for (const sf of affectedFiles) {
+            const result = await orchestrator.operate(sf.getFilePath(), sf.getFullText());
+            if (result.success) {
+                sf.replaceWithText(result.finalCode);
+            } else {
+                logger.error(`  [Sync] Failed to heal ${pc.bold(sf.getFilePath())}. Reverting to original state.`);
+                sf.refreshFromFileSystemSync();
+            }
+        }
+
         await project.save();
         logger.stopSpinner(true, 'Sovereign Migration Complete.');
       } else {

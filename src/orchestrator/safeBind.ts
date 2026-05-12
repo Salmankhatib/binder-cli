@@ -14,6 +14,10 @@ import { TrpcRouterAnalyzer, ProcedureInfo } from '../analysis/trpcAnalyzer.js';
 import { MutationAnalyzer, MutationTemplate } from '../analysis/mutationAnalyzer.js';
 import { HookIndexer } from '../analysis/hookIndexer.js';
 import { ProjectManager } from '../engine/projectManager.js';
+import { BinderMCP } from '../mcp/client.js';
+import { saveBinding, recordPatternSuccess } from '../utils/cache.js';
+import { RepoTools } from '../utils/repoTools.js';
+import { SurgeryOrchestrator } from './surgeryOrchestrator.js';
 import type { MockFinding } from '../scan/mockScanner.js';
 import type { Config } from '../config/types.js';
 import type { BindingPlan, Binding } from '../common/types.js';
@@ -183,46 +187,29 @@ Once the frontend components are bound to hooks, you should remove this handler 
           // Self-healing layer: use MCP to fix immediate issues (imports, syntax, etc.)
           rewritten = await mcp.autoFix(filePath, rewritten);
           
-          const check = runTypeCheck(filePath, rewritten, config.frontend.generatedDir, config.backend.trpcAppRouterPath);
-          
-          if (check.passed) {
-              results.rewrittenCode = rewritten;
+          const orchestrator = new SurgeryOrchestrator(config, mcp);
+          const surgery = await orchestrator.operate(filePath, rewritten);
+
+          if (surgery.success) {
+              results.rewrittenCode = surgery.finalCode;
               filePlan.bindings.forEach(b => {
                   saveBinding(filePath, b.mockName, { hookName: b.hookName });
                   const usages = findAllUsages(b.mockName, sourceFile);
                   usages.forEach(u => recordPatternSuccess(u.structuralSignature, b.strategy || 'default'));
               });
           } else {
-              logger.warn(`  [Warning] Type check failed for auto-conversions in ${filePath}. Attempting self-heal...`);
-              
-              // Second pass self-heal with diagnostics
-              const diagnostics = check.errors || [];
-              const healed = await mcp.repair({
-                  filePath,
-                  code: rewritten,
-                  mockName: filePlan.bindings[0]?.mockName || 'unknown',
-                  hookName: filePlan.bindings[0]?.hookName || 'unknown',
-                  diagnostics,
-                  projectGraph: projectManager.getProjectGraph()
-              });
-              
-              if (healed.success && healed.newCode) {
-                logger.success(`  [Heal] MCP successfully repaired surgery issues.`);
-                results.rewrittenCode = healed.newCode;
-              } else {
-                logger.error(`  [Heal] MCP could not resolve type errors. Reverting.`);
-                for (const binding of filePlan.bindings) {
-                    results.todos.push({
-                        mock: mocks.find(m => m.name === binding.mockName)!,
-                        hook: binding.hookName,
-                        reason: 'type-check-failure',
-                        todoComment: `/* TODO(BINDER): Auto-conversion failed type check. Manual review required. */`
-                    });
-                }
-                results.todo += filePlan.bindings.length;
-                results.auto = 0;
-                results.human = 0;
+              logger.error(`  [Heal] Surgery failed after multiple attempts. Reverting.`);
+              for (const binding of filePlan.bindings) {
+                  results.todos.push({
+                      mock: mocks.find(m => m.name === binding.mockName)!,
+                      hook: binding.hookName,
+                      reason: 'surgery-failure',
+                      todoComment: `/* TODO(BINDER): Surgery failed type/functional checks. Manual review required. */`
+                  });
               }
+              results.todo += filePlan.bindings.length;
+              results.auto = 0;
+              results.human = 0;
           }
       } catch (e: any) {
           logger.error(`Surgery failed: ${e.message}`);

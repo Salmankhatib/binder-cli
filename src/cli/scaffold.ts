@@ -5,12 +5,16 @@ import { logger } from '../utils/logger.js';
 import { loadPatterns } from '../generate/patternLoader.js';
 import { generateComponent } from '../generate/componentGenerator.js';
 import { loadConfig } from '../config/loader.js';
+import { BinderMCP } from '../mcp/client.js';
 
 /**
  * binder scaffold generates frontend code from an OpenAPI endpoint.
  */
 export async function runScaffold(endpointPath: string, options: { pattern?: string, write?: boolean, output?: string }) {
   const config = await loadConfig('./binder.config.json');
+  const mcp = new BinderMCP();
+  await mcp.initialize(config);
+  
   const schemaPath = resolve(process.cwd(), config.backend.schemaPath || 'openapi.json');
   
   if (!existsSync(schemaPath)) {
@@ -58,7 +62,10 @@ export async function runScaffold(endpointPath: string, options: { pattern?: str
     const fileName = `${endpointPath.replace(/\//g, '')}Form.tsx`;
     const fullPath = join(outDir, fileName);
     
-    writeFileSync(fullPath, generatedCode);
+    // Final pass: Formatting
+    const formattedCode = await mcp.format(fullPath, generatedCode);
+    
+    writeFileSync(fullPath, formattedCode);
     logger.success(`✔ Component successfully written to ${pc.bold(fullPath)}`);
   } else {
     console.log(pc.cyan(`\n✨ SCAFFOLD PREVIEW [Endpoint: ${endpointPath}, Pattern: ${patternKey}]`));

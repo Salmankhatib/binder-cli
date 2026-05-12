@@ -12,6 +12,8 @@ export interface Config {
     trpcAppRouterPath?: string;
     /** Name of the exported trpc client (for tRPC, e.g. 'trpc') */
     trpcExportName?: string;
+    /** Paths to backend DTO files for Local Contract Protocol (LCP) */
+    dtoPaths?: string[];
   };
   frontend: {
     /** Where Orval outputs generated code */

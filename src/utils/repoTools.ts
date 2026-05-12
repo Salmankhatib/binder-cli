@@ -192,4 +192,24 @@ export class RepoTools {
         return `FILE: ${file}\nDEFINITION:\n${s.getText()}`;
     }).join("\n---\n");
   }
+
+  /**
+   * Finds the test file associated with a source file.
+   */
+  public findTestFile(filePath: string): string | null {
+    const base = filePath.replace(/\.tsx?$/, '');
+    const candidates = [
+        `${base}.test.tsx`,
+        `${base}.test.ts`,
+        `${base}.spec.tsx`,
+        `${base}.spec.ts`,
+        join(dirname(filePath), '__tests__', `${relative(dirname(filePath), base)}.test.tsx`),
+        join(dirname(filePath), '__tests__', `${relative(dirname(filePath), base)}.test.ts`),
+    ];
+
+    for (const candidate of candidates) {
+        if (existsSync(candidate)) return candidate;
+    }
+    return null;
+  }
 }

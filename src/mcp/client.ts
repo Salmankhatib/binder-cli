@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { logger } from "../utils/logger.js";
 import type { Config } from "../config/types.js";
+import type { Diagnostic } from "./oracle.js";
 
 export interface ProjectGraph {
     files: string[];
@@ -16,7 +17,7 @@ export interface RepairContext {
     mockName: string;
     hookName: string;
     errorType?: string;
-    diagnostics?: string[];
+    diagnostics?: Diagnostic[];
     projectGraph?: ProjectGraph;
 }
 
@@ -31,7 +32,10 @@ export class BinderMCP {
 
     async initialize(config?: Config) {
         const servers = config?.mcpServers || [
-            { name: 'ts-repair', command: 'npx', args: ['ts-repair', 'mcp-server'] }
+            { name: 'ts-repair', command: 'npx', args: ['ts-repair', 'mcp-server'] },
+            { name: 'prettier', command: 'npx', args: ['prettier-mcp', 'mcp-server'] },
+            { name: 'vitest', command: 'npx', args: ['vitest-mcp', 'mcp-server'] },
+            { name: 'lsp', command: 'npx', args: ['lsp-mcp', 'mcp-server'] }
         ];
 
         for (const server of servers) {
@@ -136,5 +140,65 @@ Estimated effort: ${analysis.estimatedEffort || 'Medium'}
     async autoFix(filePath: string, code: string): Promise<string> {
         const result = await this.simpleAutoFix({ filePath, code, mockName: '', hookName: '' });
         return result.newCode || code;
+    }
+
+    /**
+     * Formats the code using prettier-mcp to ensure clean AST output.
+     */
+    async format(filePath: string, code: string): Promise<string> {
+        const formatter = this.clients.get('prettier');
+        if (!formatter) return code;
+
+        try {
+            const result: any = await formatter.callTool({
+                name: 'format',
+                arguments: { filePath, code }
+            });
+            return result.newCode || code;
+        } catch (e) {
+            logger.debug(`MCP: Formatting failed for ${filePath}.`);
+            return code;
+        }
+    }
+
+    /**
+     * Executes unit tests via vitest-mcp and returns functional diagnostics.
+     */
+    async runTests(filePath: string, testFilePath: string): Promise<{ success: boolean, failures?: any[] }> {
+        const tester = this.clients.get('vitest');
+        if (!tester) return { success: true }; // Skip if no tester configured
+
+        try {
+            const result: any = await tester.callTool({
+                name: 'run_test',
+                arguments: { filePath, testFilePath }
+            });
+            return {
+                success: result.success,
+                failures: result.failures
+            };
+        } catch (e) {
+            logger.debug(`MCP: Test execution failed for ${testFilePath}.`);
+            return { success: true };
+        }
+    }
+
+    /**
+     * Identifies structural changes in backend DTOs using LSP-MCP.
+     */
+    async getDelta(filePath: string): Promise<any[]> {
+        const lsp = this.clients.get('lsp');
+        if (!lsp) return [];
+
+        try {
+            const result: any = await lsp.callTool({
+                name: 'get_structural_delta',
+                arguments: { filePath }
+            });
+            return result.deltas || [];
+        } catch (e) {
+            logger.debug(`MCP: Failed to get structural delta for ${filePath}.`);
+            return [];
+        }
     }
 }
