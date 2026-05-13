@@ -43,7 +43,10 @@ export async function discoveryPhase(config: Config): Promise<ProjectMap> {
     packageJson = JSON.parse(readFileSync(pkgPath, 'utf-8'));
   }
 
-  const mainDeps = Object.keys((packageJson as any).dependencies || {});
+  const mainDeps = [
+    ...Object.keys((packageJson as any).dependencies || {}),
+    ...Object.keys((packageJson as any).devDependencies || {})
+  ];
 
   logger.stopSpinner(true, "Discovery complete. Repository map established.");
 
