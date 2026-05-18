@@ -1,0 +1,89 @@
+# Binder Performance & Scalability: Implementation Plan
+
+This document outlines the architectural upgrades required to move Binder from a medium-scale tool to an enterprise-ready sovereign governance system.
+
+---
+
+## 1. Persistent Project Indexing (The Scalability Engine)
+*Goal: Replace O(N) global crawls with O(1) indexed lookups.*
+
+- **Improvement:** 
+    - Integrate a lightweight persistent database (SQLite or LevelDB) under `.binder/index.db`.
+    - Implement a "Background Indexer" that runs as a low-priority worker.
+    - Store `hookUsageFrequency`, `symbolDefinitions`, and `importMap` in indexed tables.
+- **Implementation:**
+    - Create `src/analysis/persistence/` to manage DB connections.
+    - Update `buildRepositoryImpactMap` to perform delta-updates based on file hashes.
+- **Testing Strategy:**
+    - **Benchmark Test:** Run indexer on a 5,000+ file mock repo and measure time/CPU.
+    - **Integrity Test:** Verify that DB results match `ts-morph` AST results after a simulated `git pull`.
+
+## 2. AST Memory Management (LRU SourceFile Cache)
+*Goal: Prevent OOM errors in long-running `watch` sessions.*
+
+- **Improvement:** 
+    - Add an LRU (Least Recently Used) mechanism to `ProjectManager`.
+    - Limit the number of active `SourceFile` objects in memory (e.g., max 50).
+    - Automatically call `sf.forget()` or `project.removeSourceFile(sf)` for inactive files.
+- **Implementation:**
+    - Wrap `project.getSourceFile()` in a cache manager in `src/engine/projectManager.ts`.
+- **Testing Strategy:**
+    - **Memory Leak Test:** Simulate 1,000 file changes in `watch` mode and monitor `process.memoryUsage().heapUsed`. It should remain flat.
+
+## 3. Concurrency Queue (The Traffic Controller)
+*Goal: Prevent race conditions and file-system write locks.*
+
+- **Improvement:** 
+    - Implement a `SurgicalQueue` using a library like `p-queue` or a custom Promise chain.
+    - Ensure that only one `operate()` call runs per file at any time.
+    - Debounce rapid changes to the same file (wait 300ms after the last "save" event).
+    (We need to block the watch on multi file changes like a git pull in this context Watch is stoped and the watcher is only activeted after the repo is stable ei : fully pulled.)
+- **Implementation:**
+    - Update `src/cli/watch.ts` to push change events into a singleton queue.
+- **Testing Strategy:**
+    - **Race Test:** Simulate 10 simultaneous writes to `App.tsx` and verify that the final file state is consistent and formatting is applied once.
+
+
+## 4. Package Manager Discovery
+*Goal: Native compatibility with pnpm, yarn, and bun.*
+
+- **Improvement:** 
+    - Create a utility `getPkgManager()` that detects `pnpm-lock.yaml`, `yarn.lock`, or `bun.lockb`.
+    - Dynamically switch `execSync` commands between `npm install`, `pnpm add`, etc.
+- **Implementation:**
+    - Add detection logic to `src/utils/repoTools.ts`.
+- **Testing Strategy:**
+    - **Environment Test:** Run `binder init` in 4 dummy repos (one for each manager) and verify correct `devDependencies` injection.
+
+## 5. Mock Discovery Refinement (Precision Scoring)
+*Goal: Reduce noise and false positives in messy codebases.*
+
+- **Improvement:** 
+    - Introduce an "Exclusion Registry" in `binder.config.json` for paths or variables to ignore.
+    - Implement "Type-Guided Filtering": If a variable named `data` is typed as a primitive (string/number), ignore it. Only target complex objects/arrays.
+- **Implementation:**
+    - Update `src/scan/mockScanner.ts` to check `node.getType().isObject()`.
+- **Testing Strategy:**
+    - **False Positive Test:** Run scanner on a production file with many `data` primitives and verify zero findings.
+
+## 6. Interactive Cockpit (Real-time Dashboard)
+*Goal: Move from static reports to an actionable management UI.*
+
+- **Improvement:** 
+    - Enhance `src/server/app.ts` to serve a React SPA instead of a static string.
+    - Use WebSockets (`socket.io`) to stream "Live Surgery" logs to the UI.
+    - Add an `/api/rollback` endpoint to the Express server to trigger Git reverts from the UI.
+- **Implementation:**
+    - Create a `dashboard-ui/` sub-package.
+- **Testing Strategy:**
+    - **End-to-End Test:** Open dashboard, click "Rollback," and verify that the CLI restores the previous snapshot state.
+
+---
+
+## Implementation Priority:
+1. **Concurrency Queue** (Stability - Immediate) Done. 
+2. **Package Manager Discovery** (DX - Immediate) Maybe not, impose NPM. 
+3. **AST Memory Management** (Stability - High)
+4. **Persistent Indexing** (Scalability - Medium) Done.
+5. **Precision Scoring** (DX - Medium) Done.
+6. **Interactive Cockpit** (UX - Low) this should already be done, it runs a nextjs server. 

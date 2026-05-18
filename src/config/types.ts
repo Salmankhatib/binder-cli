@@ -30,6 +30,8 @@ export interface Config {
     variableSuffixes?: string[];    // ["_DATA", "_MOCK"]
     factoryFunctions?: string[];    // ["createUser", "generateOrder"]
     ignorePatterns?: string[];      // ["**/*.test.ts"]
+    excludeVariables?: string[];    // Explicit variables to ignore
+    excludePaths?: string[];        // Explicit files or directories to ignore
   };
   orval?: {
     /** Which query client to generate */

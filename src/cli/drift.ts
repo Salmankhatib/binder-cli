@@ -100,7 +100,7 @@ export async function runDrift() {
     });
     
     console.log(pc.gray('\n========================================'));
-    logger.warn('💡 Suggestion: Update your schema or use "binder scaffold --update" to resync hooks.');
+    logger.warning('💡 Suggestion: Update your schema or use "binder scaffold --update" to resync hooks.');
     process.exit(1); // Exit with error for CI/CD blockers
   }
 }

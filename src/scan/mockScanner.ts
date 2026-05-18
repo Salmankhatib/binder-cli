@@ -14,7 +14,7 @@ export interface MockFinding {
   actionType?: 'CREATE' | 'UPDATE' | 'DELETE' | 'READ';
 }
 
-const MOCK_PATTERNS = /mock|mocks|fake|fixture|stub|dummy|sample|test|data/i;
+const MOCK_PATTERNS = /mock|mocks|fake|fixture|stub|dummy|sample|test/i;
 const MOCK_PREFIX = /^(MOCK|FAKE|STUB|DUMMY|SAMPLE|TEST)_/i;
 const DATA_SUFFIX = /_(DATA|LIST|ARRAY|ITEMS|SET)$/i;
 const ACTION_PATTERNS = /handle(Add|Create|Delete|Remove|Update|Edit|Save)/i;
@@ -22,6 +22,11 @@ const MSW_PATTERNS = /(rest|http)\.(get|post|put|delete|patch)\(/;
 const MIRAGE_PATTERNS = /this\.(get|post|put|delete|patch)\(/;
 
 export function scanMocks(filePath: string, config?: Config): MockFinding[] {
+  // 0. Path Exclusion Check
+  if (config?.mockDetection?.excludePaths?.some(p => filePath.includes(p))) {
+    return [];
+  }
+
   logger.startSpinner('Scanning target for mock signatures and actions...');
   
   const project = new Project({
@@ -83,7 +88,12 @@ export function scanMocks(filePath: string, config?: Config): MockFinding[] {
 
     if (mockVariables.has(name)) return;
 
-    if (isMockName(name) || name === "data" || name === "items" || name.startsWith("data")) {
+    // 0.5 Exclusion Check
+    if (config?.mockDetection?.excludeVariables?.includes(name)) return;
+
+    const isGenericName = name === "data" || name === "items" || name.startsWith("data");
+
+    if (isMockName(name) || isGenericName) {
       const init = decl.getInitializer();
       
       // If it's initialized by a custom hook (already bound to API), skip it!
@@ -95,6 +105,14 @@ export function scanMocks(filePath: string, config?: Config): MockFinding[] {
       let actualInit = init;
       if (init?.isKind(SyntaxKind.CallExpression) && init.getExpression().getText() === 'useState') {
           actualInit = init.getArguments()[0];
+      }
+
+      // Type-Guided Filtering for generic names
+      if (isGenericName && !isMockName(name)) {
+          const isComplex = actualInit?.isKind(SyntaxKind.ArrayLiteralExpression) || 
+                            actualInit?.isKind(SyntaxKind.ObjectLiteralExpression);
+          
+          if (!isComplex) return; // Ignore primitive generic names (e.g. const data = 1)
       }
 
       if (actualInit?.isKind(SyntaxKind.ArrayLiteralExpression)) {
